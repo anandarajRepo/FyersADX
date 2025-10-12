@@ -7,7 +7,7 @@ All times are in IST (Indian Standard Time).
 
 import logging
 from datetime import datetime, time, timedelta
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 import pytz
 
 logger = logging.getLogger(__name__)
