@@ -32,11 +32,11 @@ pytest-asyncio==0.21.1
 pytest-cov==4.1.0
 
 # Optional: For backtesting visualization
-matplotlib==3.8.2
-seaborn==0.13.0
+#matplotlib==3.8.2
+#seaborn==0.13.0
 
 # Optional: For performance optimization
-numba==0.58.1
+#numba==0.58.1
 
 # Optional: For database operations (backtesting)
-sqlalchemy==2.0.23
+#sqlalchemy==2.0.23
