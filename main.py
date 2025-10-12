@@ -24,7 +24,6 @@ from config.settings import config
 from config.symbols import symbol_manager, get_active_symbols
 from strategy.adx_strategy import ADXStrategy
 from services.market_timing_service import MarketTimingService
-
 # from backtesting.adx_backtest import ADXBacktester  # Import when implemented
 
 console = Console()
@@ -49,6 +48,75 @@ def setup_logging():
 
     logger = logging.getLogger(__name__)
     logger.info("Logging initialized")
+
+
+def _update_env_credentials(client_id: str, secret_key: str, redirect_uri: str) -> bool:
+    """
+    Update .env file with Fyers credentials.
+
+    Args:
+        client_id: Fyers Client ID
+        secret_key: Fyers Secret Key
+        redirect_uri: OAuth redirect URI
+
+    Returns:
+        bool: True if updated successfully
+    """
+    env_file = Path('.env')
+
+    try:
+        # Read existing .env or create new
+        if env_file.exists():
+            with open(env_file, 'r') as f:
+                lines = f.readlines()
+        else:
+            # Copy from template if exists
+            template = Path('.env.template')
+            if template.exists():
+                with open(template, 'r') as f:
+                    lines = f.readlines()
+            else:
+                lines = []
+
+        # Update or add credentials
+        updated = {
+            'FYERS_CLIENT_ID': False,
+            'FYERS_SECRET_KEY': False,
+            'FYERS_REDIRECT_URI': False
+        }
+
+        new_lines = []
+        for line in lines:
+            if line.startswith('FYERS_CLIENT_ID='):
+                new_lines.append(f'FYERS_CLIENT_ID={client_id}\n')
+                updated['FYERS_CLIENT_ID'] = True
+            elif line.startswith('FYERS_SECRET_KEY='):
+                new_lines.append(f'FYERS_SECRET_KEY={secret_key}\n')
+                updated['FYERS_SECRET_KEY'] = True
+            elif line.startswith('FYERS_REDIRECT_URI='):
+                new_lines.append(f'FYERS_REDIRECT_URI={redirect_uri}\n')
+                updated['FYERS_REDIRECT_URI'] = True
+            else:
+                new_lines.append(line)
+
+        # Add missing entries
+        if not updated['FYERS_CLIENT_ID']:
+            new_lines.append(f'\nFYERS_CLIENT_ID={client_id}\n')
+        if not updated['FYERS_SECRET_KEY']:
+            new_lines.append(f'FYERS_SECRET_KEY={secret_key}\n')
+        if not updated['FYERS_REDIRECT_URI']:
+            new_lines.append(f'FYERS_REDIRECT_URI={redirect_uri}\n')
+
+        # Write back
+        with open(env_file, 'w') as f:
+            f.writelines(new_lines)
+
+        console.print(f"[green]✓[/green] Credentials saved to .env file")
+        return True
+
+    except Exception as e:
+        console.print(f"[red]✗[/red] Error saving credentials: {e}")
+        return False
 
 
 @click.group()
@@ -153,29 +221,308 @@ def backtest(start_date, end_date, symbols, output):
 
 
 @cli.command()
-def auth():
+@click.option('--client-id', help='Fyers Client ID')
+@click.option('--secret-key', help='Fyers Secret Key')
+@click.option('--redirect-uri', default='http://localhost:8000/callback', help='Redirect URI')
+def auth(client_id, secret_key, redirect_uri):
     """
     Setup Fyers API authentication.
 
     This will guide you through the OAuth flow to obtain access tokens.
-    """
-    console.print("\n[bold cyan]Fyers API Authentication[/bold cyan]\n")
 
-    # TODO: Implement authentication flow
-    console.print("[yellow]Authentication module will be implemented with utils/enhanced_auth_helper.py[/yellow]")
-    console.print("\nRequired credentials:")
-    console.print("  • Client ID")
-    console.print("  • Secret Key")
-    console.print("  • Trading PIN")
-    console.print("\nPlease ensure these are set in your .env file")
+    Example:
+        python main.py auth
+        python main.py auth --client-id YOUR_ID --secret-key YOUR_KEY
+    """
+    from utils.enhanced_auth_helper import FyersAuthenticationHelper
+
+    console.print("\n[bold cyan]🔐 Fyers API Authentication[/bold cyan]\n")
+
+    # Check if credentials are in .env
+    env_file = Path('.env')
+    has_env = env_file.exists()
+
+    # Get credentials from command line or .env or prompt
+    if not client_id:
+        if config.fyers.client_id:
+            client_id = config.fyers.client_id
+            console.print(f"[green]✓[/green] Using Client ID from .env: {client_id[:10]}...")
+        else:
+            console.print("\n[yellow]Fyers Client ID is required[/yellow]")
+            console.print("Get it from: https://myapi.fyers.in/")
+            console.print("Format: ABC123-100")
+            client_id = input("\nEnter your Fyers Client ID: ").strip()
+
+    if not secret_key:
+        if config.fyers.secret_key:
+            secret_key = config.fyers.secret_key
+            console.print(f"[green]✓[/green] Using Secret Key from .env (hidden)")
+        else:
+            console.print("\n[yellow]Fyers Secret Key is required[/yellow]")
+            import getpass
+            secret_key = getpass.getpass("Enter your Fyers Secret Key: ").strip()
+
+    if not client_id or not secret_key:
+        console.print("\n[red]✗ Error: Client ID and Secret Key are required[/red]")
+        return
+
+    # Update config
+    config.fyers.client_id = client_id
+    config.fyers.secret_key = secret_key
+    config.fyers.redirect_uri = redirect_uri
+
+    # Save to .env if doesn't exist or update
+    if not has_env or not config.fyers.client_id:
+        _update_env_credentials(client_id, secret_key, redirect_uri)
+
+    # Perform authentication
+    console.print("\n[bold cyan]Starting OAuth Flow...[/bold cyan]\n")
+
+    try:
+        auth_helper = FyersAuthenticationHelper(config.fyers)
+
+        # Check if already authenticated
+        if auth_helper.is_token_valid():
+            console.print("[green]✓ Already authenticated![/green]")
+            auth_helper.print_token_info()
+
+            refresh = input("\nDo you want to re-authenticate? (y/N): ").strip().lower()
+            if refresh != 'y':
+                return
+
+        # Authenticate
+        success = auth_helper.authenticate()
+
+        if success:
+            console.print("\n[bold green]✓ Authentication Successful![/bold green]")
+            auth_helper.print_token_info()
+            console.print("\n[green]Tokens have been saved. You can now run the strategy.[/green]")
+        else:
+            console.print("\n[bold red]✗ Authentication Failed[/bold red]")
+            console.print("Please check your credentials and try again.")
+
+    except Exception as e:
+        console.print(f"\n[bold red]✗ Error: {e}[/bold red]")
+        logging.error(f"Authentication error: {e}", exc_info=True)
 
 
 @cli.command()
-@click.option('--new-pin', prompt='Enter new PIN', hide_input=True, confirmation_prompt=True)
+def setup():
+    """
+    Interactive setup wizard for first-time configuration.
+
+    Guides you through:
+    - Creating .env file from template
+    - Setting up Fyers credentials
+    - Configuring strategy parameters
+    - Authenticating with Fyers API
+    """
+    console.print("\n")
+    console.print(Panel.fit(
+        "[bold cyan]FyersADX Setup Wizard[/bold cyan]\n\n"
+        "This wizard will guide you through the initial setup.",
+        border_style="cyan"
+    ))
+
+    # Step 1: Check/Create .env file
+    console.print("\n[bold]Step 1: Configuration File[/bold]")
+    env_file = Path('.env')
+    template_file = Path('.env.template')
+
+    if env_file.exists():
+        console.print("[green]✓[/green] .env file exists")
+        overwrite = input("Do you want to reconfigure? (y/N): ").strip().lower()
+        if overwrite != 'y':
+            console.print("[yellow]Skipping configuration setup[/yellow]")
+        else:
+            if template_file.exists():
+                import shutil
+                shutil.copy(template_file, env_file)
+                console.print("[green]✓[/green] Reset .env from template")
+    else:
+        if template_file.exists():
+            import shutil
+            shutil.copy(template_file, env_file)
+            console.print("[green]✓[/green] Created .env from template")
+        else:
+            console.print("[red]✗[/red] .env.template not found!")
+            console.print("Please ensure .env.template exists in the project root.")
+            return
+
+    # Step 2: Fyers Credentials
+    console.print("\n[bold]Step 2: Fyers API Credentials[/bold]")
+    console.print("Get your credentials from: [cyan]https://myapi.fyers.in/[/cyan]\n")
+
+    client_id = input("Enter your Fyers Client ID (format: ABC123-100): ").strip()
+
+    import getpass
+    secret_key = getpass.getpass("Enter your Fyers Secret Key: ").strip()
+
+    redirect_uri = input("Enter Redirect URI [http://localhost:8000/callback]: ").strip()
+    if not redirect_uri:
+        redirect_uri = "http://localhost:8000/callback"
+
+    if client_id and secret_key:
+        _update_env_credentials(client_id, secret_key, redirect_uri)
+    else:
+        console.print("[red]✗[/red] Client ID and Secret Key are required")
+        return
+
+    # Step 3: Trading PIN
+    console.print("\n[bold]Step 3: Trading PIN[/bold]")
+    console.print("PIN is required for order placement (live trading only)\n")
+
+    pin = getpass.getpass("Enter your Trading PIN (4-6 digits): ").strip()
+
+    if pin and pin.isdigit() and 4 <= len(pin) <= 6:
+        # Update PIN in .env
+        try:
+            with open(env_file, 'r') as f:
+                lines = f.readlines()
+
+            pin_updated = False
+            new_lines = []
+            for line in lines:
+                if line.startswith('FYERS_PIN='):
+                    new_lines.append(f'FYERS_PIN={pin}\n')
+                    pin_updated = True
+                else:
+                    new_lines.append(line)
+
+            if not pin_updated:
+                new_lines.append(f'FYERS_PIN={pin}\n')
+
+            with open(env_file, 'w') as f:
+                f.writelines(new_lines)
+
+            console.print("[green]✓[/green] PIN saved")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error saving PIN: {e}")
+    else:
+        console.print("[yellow]⚠[/yellow] Invalid PIN format. You can set it later with: python main.py update-pin")
+
+    # Step 4: Strategy Parameters
+    console.print("\n[bold]Step 4: Strategy Parameters[/bold]")
+    console.print("Configure basic strategy settings (you can change these later in .env)\n")
+
+    portfolio = input("Portfolio Value [100000]: ").strip()
+    if portfolio and portfolio.isdigit():
+        _update_env_setting('PORTFOLIO_VALUE', portfolio)
+
+    risk = input("Risk Per Trade % [1.0]: ").strip()
+    if risk:
+        _update_env_setting('RISK_PER_TRADE', risk)
+
+    max_pos = input("Max Positions [5]: ").strip()
+    if max_pos and max_pos.isdigit():
+        _update_env_setting('MAX_POSITIONS', max_pos)
+
+    console.print("[green]✓[/green] Configuration saved")
+
+    # Step 5: Authentication
+    console.print("\n[bold]Step 5: Fyers Authentication[/bold]")
+    console.print("Now we'll authenticate with Fyers to get access tokens.\n")
+
+    proceed = input("Proceed with authentication? (Y/n): ").strip().lower()
+    if proceed != 'n':
+        # Reload config to pick up new values
+        from importlib import reload
+        from config import settings
+        reload(settings)
+
+        # Run auth command
+        console.print("\n" + "="*60)
+        from utils.enhanced_auth_helper import FyersAuthenticationHelper
+        auth_helper = FyersAuthenticationHelper(settings.config.fyers)
+
+        if auth_helper.authenticate():
+            console.print("\n[bold green]✓ Setup Complete![/bold green]")
+            console.print("\nYou can now:")
+            console.print("  • Run diagnostics: [cyan]python main.py diagnostics[/cyan]")
+            console.print("  • Check market: [cyan]python main.py market[/cyan]")
+            console.print("  • Start paper trading: [cyan]python main.py run --paper[/cyan]")
+        else:
+            console.print("\n[yellow]⚠ Authentication failed[/yellow]")
+            console.print("You can retry later with: [cyan]python main.py auth[/cyan]")
+    else:
+        console.print("\n[yellow]Authentication skipped.[/yellow]")
+        console.print("Run [cyan]python main.py auth[/cyan] when ready.")
+
+    console.print("\n" + "="*60)
+
+
+def _update_env_setting(key: str, value: str) -> bool:
+    """Update a single setting in .env file."""
+    env_file = Path('.env')
+    if not env_file.exists():
+        return False
+
+    try:
+        with open(env_file, 'r') as f:
+            lines = f.readlines()
+
+        updated = False
+        new_lines = []
+        for line in lines:
+            if line.startswith(f'{key}='):
+                new_lines.append(f'{key}={value}\n')
+                updated = True
+            else:
+                new_lines.append(line)
+
+        if not updated:
+            new_lines.append(f'{key}={value}\n')
+
+        with open(env_file, 'w') as f:
+            f.writelines(new_lines)
+
+        return True
+    except Exception:
+        return False
+
+
+@cli.command()
+@click.option('--new-pin', help='New trading PIN (4-6 digits)')
 def update_pin(new_pin):
-    """Update your trading PIN."""
-    # TODO: Implement PIN update
-    console.print("[green]✓[/green] PIN updated successfully")
+    """
+    Update your trading PIN.
+
+    Example:
+        python main.py update-pin
+        python main.py update-pin --new-pin 1234
+    """
+    from utils.enhanced_auth_helper import FyersAuthenticationHelper
+
+    console.print("\n[bold cyan]🔐 Update Trading PIN[/bold cyan]\n")
+
+    if not new_pin:
+        console.print("[yellow]Trading PIN is used for order placement[/yellow]")
+        console.print("PIN should be 4-6 digits\n")
+
+        import getpass
+        new_pin = getpass.getpass("Enter new PIN: ").strip()
+        confirm_pin = getpass.getpass("Confirm new PIN: ").strip()
+
+        if new_pin != confirm_pin:
+            console.print("[red]✗ PINs do not match[/red]")
+            return
+
+    # Validate PIN
+    if not new_pin.isdigit() or len(new_pin) < 4 or len(new_pin) > 6:
+        console.print("[red]✗ Invalid PIN format. Must be 4-6 digits.[/red]")
+        return
+
+    try:
+        auth_helper = FyersAuthenticationHelper(config.fyers)
+
+        if auth_helper.update_pin(new_pin):
+            console.print("[green]✓ PIN updated successfully[/green]")
+            console.print("\n[dim]PIN has been saved to .env file[/dim]")
+        else:
+            console.print("[red]✗ Failed to update PIN[/red]")
+
+    except Exception as e:
+        console.print(f"[red]✗ Error: {e}[/red]")
 
 
 @cli.command()
