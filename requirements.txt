@@ -7,7 +7,7 @@ numpy==1.26.2
 python-dotenv==1.0.0
 
 # Fyers API
-fyers-apiv3==3.1.5
+fyers-apiv3>=3.0.8
 
 # Data handling
 pytz==2023.3.post1
