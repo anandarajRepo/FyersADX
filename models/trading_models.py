@@ -512,14 +512,14 @@ class StrategyMetrics:
         print("STRATEGY PERFORMANCE METRICS")
         print("=" * 70)
 
-        print(f"\n📊 Overall Performance:")
+        print(f"\nOverall Performance:")
         print(f"  Period: {self.start_date.date()} to {self.end_date.date()}")
         print(f"  Total Trades: {self.total_trades}")
         print(f"  Win Rate: {self.win_rate:.2%}")
         print(f"  Total P&L: ₹{self.total_pnl:,.2f}")
         print(f"  Total Return: {self.total_return_pct:.2%}")
 
-        print(f"\n💰 P&L Analysis:")
+        print(f"\nP&L Analysis:")
         print(f"  Winning Trades: {self.winning_trades}")
         print(f"  Losing Trades: {self.losing_trades}")
         print(f"  Average Win: ₹{self.average_win:,.2f}")
@@ -528,17 +528,17 @@ class StrategyMetrics:
         print(f"  Largest Loss: ₹{self.largest_loss:,.2f}")
         print(f"  Profit Factor: {self.profit_factor:.2f}")
 
-        print(f"\n⚠️ Risk Metrics:")
+        print(f"\nRisk Metrics:")
         print(f"  Max Drawdown: {self.max_drawdown:.2%}")
         if self.sharpe_ratio:
             print(f"  Sharpe Ratio: {self.sharpe_ratio:.2f}")
 
-        print(f"\n🚪 Exit Analysis:")
+        print(f"\nExit Analysis:")
         for reason, count in self.exit_reason_breakdown.items():
             pct = count / self.total_trades if self.total_trades > 0 else 0
             print(f"  {reason}: {count} ({pct:.1%})")
 
-        print(f"\n⏱️ Timing:")
+        print(f"\nTiming:")
         print(f"  Avg Holding Time: {self.avg_holding_time_minutes:.1f} minutes")
 
         print("\n" + "=" * 70)

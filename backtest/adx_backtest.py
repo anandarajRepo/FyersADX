@@ -18,7 +18,7 @@ from models.trading_models import (
 )
 from services.analysis_service import ADXTechnicalAnalysisService
 from config.settings import ADXStrategyConfig, BacktestConfig
-from backtesting.data_loader import SQLiteDataLoader
+from backtest.data_loader import SQLiteDataLoader
 
 logger = logging.getLogger(__name__)
 

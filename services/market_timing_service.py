@@ -233,19 +233,19 @@ class MarketTimingService:
         print("\n" + "=" * 60)
         print("MARKET STATUS")
         print("=" * 60)
-        print(f"\n⏰ Current Time: {status['current_time_str']}")
-        print(f"\n📊 Market Status:")
-        print(f"  Market Open: {'Yes ✅' if status['is_market_open'] else 'No ❌'}")
+        print(f"\nCurrent Time: {status['current_time_str']}")
+        print(f"\nMarket Status:")
+        print(f"  Market Open: {'Yes' if status['is_market_open'] else 'No'}")
         print(f"  Weekend: {'Yes' if status['is_weekend'] else 'No'}")
 
-        print(f"\n🔔 Trading Windows:")
-        print(f"  Can Generate Signals: {'Yes ✅' if status['can_generate_signals'] else 'No ❌'}")
+        print(f"\nTrading Windows:")
+        print(f"  Can Generate Signals: {'Yes' if status['can_generate_signals'] else 'No'}")
         print(f"  Signal Cutoff Time: {status['signal_cutoff_time']}")
         print(f"  Square-off Time: {status['square_off_time']}")
 
-        print(f"\n⚠️ Square-off Status:")
+        print(f"\nSquare-off Status:")
         if status['should_square_off']:
-            print(f"  Should Square Off: YES - IMMEDIATE ACTION REQUIRED ⚠️")
+            print(f"  Should Square Off: YES - IMMEDIATE ACTION REQUIRED")
         else:
             print(f"  Should Square Off: No")
             if status['time_until_square_off_str'] != "Past square-off time":

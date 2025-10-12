@@ -334,14 +334,14 @@ class SymbolManager:
         print("SYMBOL UNIVERSE SUMMARY")
         print("=" * 60)
 
-        print(f"\n📊 Total Symbols: {stats['total_symbols']}")
-        print(f"✅ Active Symbols: {stats['active_symbols']}")
+        print(f"\nTotal Symbols: {stats['total_symbols']}")
+        print(f"Active Symbols: {stats['active_symbols']}")
 
-        print("\n📈 By Category:")
+        print("\nBy Category:")
         for category, count in stats['by_category'].items():
             print(f"  {category}: {count}")
 
-        print("\n🏭 By Sector:")
+        print("\nBy Sector:")
         for sector, count in sorted(stats['by_sector'].items()):
             print(f"  {sector}: {count}")
 

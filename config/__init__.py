@@ -32,7 +32,7 @@ __all__ = [
 # ============================================================================
 """Data models package for FyersADX."""
 
-from .trading_models import (
+from models.trading_models import (
     SignalType,
     SymbolCategory,
     ExitReason,
@@ -63,9 +63,9 @@ __all__ = [
 # ============================================================================
 """Services package for FyersADX."""
 
-from .analysis_service import ADXTechnicalAnalysisService
-from .market_timing_service import MarketTimingService
-from .fyers_websocket_service import FyersWebSocketService, HybridADXDataService
+from  services.analysis_service import ADXTechnicalAnalysisService
+from services.market_timing_service import MarketTimingService
+from services.fyers_websocket_service import FyersWebSocketService, HybridADXDataService
 
 __all__ = [
     'ADXTechnicalAnalysisService',
@@ -79,7 +79,7 @@ __all__ = [
 # ============================================================================
 """Strategy package for FyersADX."""
 
-from .adx_strategy import ADXStrategy
+from strategy.adx_strategy import ADXStrategy
 
 __all__ = [
     'ADXStrategy'
@@ -90,7 +90,7 @@ __all__ = [
 # ============================================================================
 """Utilities package for FyersADX."""
 
-from .enhanced_auth_helper import (
+from utils.enhanced_auth_helper import (
     FyersAuthenticationHelper,
     authenticate_fyers,
     ensure_authenticated
@@ -107,8 +107,8 @@ __all__ = [
 # ============================================================================
 """Backtesting package for FyersADX."""
 
-from .adx_backtest import ADXBacktester, BacktestPosition
-from .data_loader import SQLiteDataLoader, load_data
+from backtest.adx_backtest import ADXBacktester, BacktestPosition
+from backtest.data_loader import SQLiteDataLoader, load_data
 
 __all__ = [
     'ADXBacktester',
