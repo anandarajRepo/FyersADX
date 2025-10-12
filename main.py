@@ -223,8 +223,9 @@ def backtest(start_date, end_date, symbols, output):
 @cli.command()
 @click.option('--client-id', help='Fyers Client ID')
 @click.option('--secret-key', help='Fyers Secret Key')
-@click.option('--redirect-uri', default='http://localhost:8000/callback', help='Redirect URI')
-def auth(client_id, secret_key, redirect_uri):
+@click.option('--redirect-uri', help='Redirect URI')
+@click.option('--open-browser', is_flag=True, help='Automatically open browser (default: manual copy-paste)')
+def auth(client_id, secret_key, redirect_uri, open_browser):
     """
     Setup Fyers API authentication.
 
@@ -233,10 +234,11 @@ def auth(client_id, secret_key, redirect_uri):
     Example:
         python main.py auth
         python main.py auth --client-id YOUR_ID --secret-key YOUR_KEY
+        python main.py auth --open-browser # Auto-open browser
     """
     from utils.enhanced_auth_helper import FyersAuthenticationHelper
 
-    console.print("\n[bold cyan]🔐 Fyers API Authentication[/bold cyan]\n")
+    console.print("\n[bold cyan] Fyers API Authentication[/bold cyan]\n")
 
     # Check if credentials are in .env
     env_file = Path('.env')
@@ -289,6 +291,9 @@ def auth(client_id, secret_key, redirect_uri):
             refresh = input("\nDo you want to re-authenticate? (y/N): ").strip().lower()
             if refresh != 'y':
                 return
+
+        # Set browser opening preference
+        auth_helper.auto_open_browser = open_browser
 
         # Authenticate
         success = auth_helper.authenticate()
@@ -358,9 +363,9 @@ def setup():
     import getpass
     secret_key = getpass.getpass("Enter your Fyers Secret Key: ").strip()
 
-    redirect_uri = input("Enter Redirect URI [http://localhost:8000/callback]: ").strip()
+    redirect_uri = input("Enter Redirect URI [https://trade.fyers.in/api-login/redirect-to-app]: ").strip()
     if not redirect_uri:
-        redirect_uri = "http://localhost:8000/callback"
+        redirect_uri = "https://trade.fyers.in/api-login/redirect-to-app"
 
     if client_id and secret_key:
         _update_env_credentials(client_id, secret_key, redirect_uri)
@@ -493,7 +498,7 @@ def update_pin(new_pin):
     """
     from utils.enhanced_auth_helper import FyersAuthenticationHelper
 
-    console.print("\n[bold cyan]🔐 Update Trading PIN[/bold cyan]\n")
+    console.print("\n[bold cyan] Update Trading PIN[/bold cyan]\n")
 
     if not new_pin:
         console.print("[yellow]Trading PIN is used for order placement[/yellow]")

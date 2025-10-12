@@ -7,7 +7,6 @@ Handles OAuth flow, token management, and automatic token refresh with PIN suppo
 import os
 import json
 import logging
-import webbrowser
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple
@@ -15,7 +14,6 @@ from urllib.parse import parse_qs, urlparse
 
 try:
     from fyers_apiv3 import fyersModel
-
     FYERS_AVAILABLE = True
 except ImportError:
     FYERS_AVAILABLE = False
@@ -51,6 +49,7 @@ class FyersAuthenticationHelper:
         self.config = config
         self.session = None
         self.token_file_path = Path(self.TOKEN_FILE)
+        self.auto_open_browser = False  # Default: don't auto-open browser
 
         logger.info("Initialized FyersAuthenticationHelper")
 
@@ -86,23 +85,39 @@ class FyersAuthenticationHelper:
             # Step 2: Generate auth code URL
             auth_url = self.session.generate_authcode()
 
-            logger.info(f"Authorization URL: {auth_url}")
-            logger.info("Opening browser for authentication...")
+            logger.info(f"Authorization URL generated")
 
-            # Open browser
-            webbrowser.open(auth_url)
-
-            # Step 3: Get authorization code from user
-            print("\n" + "=" * 70)
+            # Step 3: Display URL and instructions
+            print("\n" + "=" * 80)
             print("FYERS AUTHENTICATION")
-            print("=" * 70)
-            print("\n1. Browser should have opened with Fyers login page")
-            print("2. Log in and authorize the application")
-            print("3. You will be redirected to a URL (may show 'site cannot be reached')")
-            print("4. Copy the ENTIRE redirect URL from browser address bar")
-            print("\nThe URL should look like:")
-            print("http://localhost:8000/callback?auth_code=XXXXX&state=sample_state")
-            print("\n" + "=" * 70)
+            print("=" * 80)
+            print("\n STEP 1: Copy the Authorization URL below")
+            print("─" * 80)
+            print(f"\n{auth_url}\n")
+            print("─" * 80)
+
+            # Optionally open browser
+            if self.auto_open_browser:
+                print("\n Opening browser automatically...")
+                try:
+                    import webbrowser
+                    webbrowser.open(auth_url)
+                    print("✓ Browser opened")
+                except Exception as e:
+                    print(f"✗ Could not open browser: {e}")
+                    print("Please copy the URL above manually")
+
+            print("\nSTEP 2: Manual Steps")
+            print("  1. Copy the URL above (or use the browser that opened)")
+            print("  2. Paste it in your browser (if not auto-opened)")
+            print("  3. Log in to your Fyers account")
+            print("  4. Authorize the application")
+            print("  5. You will be redirected (page may show 'site cannot be reached')")
+            print("  6. Copy the ENTIRE redirect URL from browser address bar")
+
+            print("\n The redirect URL should look like:")
+            print("  http://localhost:8000/callback?auth_code=XXXXX&state=sample_state")
+            print("\n" + "=" * 80)
 
             redirect_url = input("\nPaste the redirect URL here: ").strip()
 
@@ -522,9 +537,9 @@ if __name__ == "__main__":
         success = auth_helper.authenticate()
 
         if success:
-            print("\n✓ Authentication successful!")
+            print("\nAuthentication successful!")
             auth_helper.print_token_info()
         else:
-            print("\n✗ Authentication failed")
+            print("\nAuthentication failed")
     else:
-        print("\n✓ Already authenticated")
+        print("\nAlready authenticated")
