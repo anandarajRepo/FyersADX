@@ -21,7 +21,7 @@ from rich import box
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config.settings import config
-from config.symbols import symbol_manager, get_active_symbols
+from config.symbols import get_active_symbols, get_symbol_name, print_summary, validate_symbols,LARGE_CAP_SYMBOLS, MID_CAP_SYMBOLS, SMALL_CAP_SYMBOLS, OPTIONS_SYMBOLS
 from strategy.adx_strategy import ADXStrategy
 from services.market_timing_service import MarketTimingService
 # from backtesting.adx_backtest import ADXBacktester  # Import when implemented
@@ -164,7 +164,7 @@ def run(symbols, paper):
     # Get symbols to trade
     if symbols:
         trading_symbols = list(symbols)
-        valid, invalid = symbol_manager.validate_symbol_list(trading_symbols)
+        valid, invalid = validate_symbols(trading_symbols)
         if invalid:
             console.print(f"[yellow]Warning: Invalid symbols will be skipped: {invalid}[/yellow]")
         trading_symbols = valid
@@ -552,7 +552,7 @@ def validate():
 
     # Validate symbols
     console.print("\n[bold cyan]Symbol Validation[/bold cyan]\n")
-    symbol_manager.print_summary()
+    print_summary()
 
 
 @cli.command()
@@ -575,16 +575,15 @@ def symbols():
     """
     console.print("\n[bold cyan]Available Trading Symbols[/bold cyan]\n")
 
-    symbol_manager.print_summary()
+    print_summary()
 
     # Show detailed list
     console.print("\n[bold]Active Symbols:[/bold]")
 
     active = get_active_symbols()
-    for i, symbol in enumerate(active[:20], 1):  # Show first 20
-        info = symbol_manager.get_symbol_info(symbol)
-        if info:
-            console.print(f"{i:2d}. {info.name:30s} ({symbol:20s}) - {info.sector}")
+    for i, symbol in enumerate(active[:20], 1):
+        name = get_symbol_name(symbol)
+        console.print(f"  {i}. {name} ({symbol})")
 
     if len(active) > 20:
         console.print(f"\n... and {len(active) - 20} more symbols")
