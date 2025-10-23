@@ -21,7 +21,7 @@ from rich import box
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config.settings import config
-from config.symbols import get_active_symbols, get_symbol_name, print_summary, validate_symbols,LARGE_CAP_SYMBOLS, MID_CAP_SYMBOLS, SMALL_CAP_SYMBOLS, OPTIONS_SYMBOLS
+from config.symbols import get_active_symbols, get_symbol_name, print_summary, validate_symbols, LARGE_CAP_SYMBOLS, MID_CAP_SYMBOLS, SMALL_CAP_SYMBOLS, OPTIONS_SYMBOLS
 from strategy.adx_strategy import ADXStrategy
 from services.market_timing_service import MarketTimingService
 # from backtesting.adx_backtest import ADXBacktester  # Import when implemented

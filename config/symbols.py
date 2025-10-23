@@ -104,7 +104,7 @@ ALL_SYMBOLS = (
 
 # Default symbol list for strategy (can be overridden)
 # Choose one of: LARGE_CAP_SYMBOLS, MID_CAP_SYMBOLS, OPTIONS_SYMBOLS, ALL_SYMBOLS
-DEFAULT_TRADING_SYMBOLS = LARGE_CAP_SYMBOLS
+DEFAULT_TRADING_SYMBOLS = OPTIONS_SYMBOLS
 
 
 def get_active_symbols() -> List[str]:
