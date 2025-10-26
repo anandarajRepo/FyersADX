@@ -271,7 +271,8 @@ def auth(client_id, secret_key, redirect_uri, open_browser):
     # Update config
     config.fyers.client_id = client_id
     config.fyers.secret_key = secret_key
-    config.fyers.redirect_uri = redirect_uri
+    if redirect_uri:  # Only update if provided
+        config.fyers.redirect_uri = redirect_uri
 
     # Save to .env if doesn't exist or update
     if not has_env or not config.fyers.client_id:
