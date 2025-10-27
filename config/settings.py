@@ -6,10 +6,13 @@ including portfolio settings, indicator parameters, risk management, and API cre
 """
 
 import os
+import logging
 from dataclasses import dataclass, field
 from datetime import time
 from typing import Optional
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -43,8 +46,8 @@ class ADXStrategyConfig:
     max_positions: int = int(os.getenv("MAX_POSITIONS", "5"))
 
     # ADX/DI parameters
-    di_period: int = int(os.getenv("DI_PERIOD", "14"))
-    volume_threshold_percentile: float = float(os.getenv("VOLUME_THRESHOLD_PERCENTILE", "60.0"))
+    di_period: int = int(os.getenv("DI_PERIOD", "30"))
+    volume_threshold_percentile: float = float(os.getenv("VOLUME_THRESHOLD_PERCENTILE", "50.0"))
     min_volume_ratio: float = float(os.getenv("MIN_VOLUME_RATIO", "1.5"))
 
     # Risk management
@@ -80,25 +83,38 @@ class ADXStrategyConfig:
         hour, minute = map(int, self.signal_generation_end_time.split(":"))
         return time(hour=hour, minute=minute)
 
-    def calculate_position_size(self, entry_price: float, stop_loss: float) -> int:
+    def calculate_position_size(self, entry_price: float, stop_loss: float, symbol: str = "") -> int:
         """
         Calculate position size based on risk per trade.
+        For options, returns quantity in lot multiples.
 
         Args:
             entry_price: Entry price for the position
             stop_loss: Stop loss price
+            symbol: Symbol identifier (for lot size lookup)
 
         Returns:
-            int: Number of shares to trade
+            int: Number of shares/contracts to trade
         """
+        from config.symbols import get_lot_size, calculate_lots, is_option_symbol
+
         risk_amount = self.portfolio_value * (self.risk_per_trade_pct / 100)
         price_risk = abs(entry_price - stop_loss)
 
         if price_risk == 0:
-            return 0
+            return get_lot_size(symbol) if symbol else 1
 
-        quantity = int(risk_amount / price_risk)
-        return max(1, quantity)  # Minimum 1 share
+        # Calculate base quantity
+        base_quantity = int(risk_amount / price_risk)
+
+        # If option symbol, adjust to lot size
+        if symbol and is_option_symbol(symbol):
+            num_lots, actual_quantity = calculate_lots(symbol, base_quantity)
+            logger.info(f"Position sizing for {symbol}: "f"Base={base_quantity}, Lots={num_lots}, Actual={actual_quantity}")
+            return actual_quantity
+
+        # For equity, minimum 1 share
+        return max(1, base_quantity)
 
     def validate(self) -> tuple[bool, list[str]]:
         """

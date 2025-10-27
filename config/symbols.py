@@ -106,6 +106,90 @@ ALL_SYMBOLS = (
 # Choose one of: LARGE_CAP_SYMBOLS, MID_CAP_SYMBOLS, OPTIONS_SYMBOLS, ALL_SYMBOLS
 DEFAULT_TRADING_SYMBOLS = OPTIONS_SYMBOLS
 
+# ============================================================================
+# LOT SIZES FOR OPTIONS (NSE)
+# ============================================================================
+
+LOT_SIZES = {
+    # Index Options
+    "NIFTY": 50,
+    "BANKNIFTY": 30,
+    "FINNIFTY": 60,
+    "MIDCPNIFTY": 120,
+
+    # Equity Options (examples - update as needed)
+    # "RELIANCE": 250,
+    # "TCS": 150,
+    # "HDFCBANK": 550,
+    # "INFY": 300,
+    # "ICICIBANK": 1375,
+    # Add more as needed
+}
+
+
+def get_lot_size(symbol: str) -> int:
+    """
+    Get lot size for a symbol.
+
+    Args:
+        symbol: Symbol identifier (NSE:NIFTY25OCT25850CE format)
+
+    Returns:
+        int: Lot size (default 1 for equity)
+    """
+    # Extract base symbol from option symbol
+    # NSE:NIFTY25OCT25850CE -> NIFTY
+    # NSE:BANKNIFTY25OCT58000PE -> BANKNIFTY
+
+    symbol_upper = symbol.upper()
+
+    # Check each known symbol
+    for base_symbol, lot_size in LOT_SIZES.items():
+        if base_symbol in symbol_upper:
+            return lot_size
+
+    # Default for equity (no lot size concept)
+    return 1
+
+
+def calculate_lots(symbol: str, target_quantity: int) -> tuple[int, int]:
+    """
+    Calculate number of lots and actual quantity.
+
+    Args:
+        symbol: Symbol identifier
+        target_quantity: Target quantity to achieve
+
+    Returns:
+        tuple: (num_lots, actual_quantity)
+    """
+    lot_size = get_lot_size(symbol)
+
+    # Calculate number of lots (round down)
+    num_lots = target_quantity // lot_size
+
+    # Ensure at least 1 lot
+    if num_lots == 0:
+        num_lots = 1
+
+    # Actual quantity
+    actual_quantity = num_lots * lot_size
+
+    return num_lots, actual_quantity
+
+
+def is_option_symbol(symbol: str) -> bool:
+    """
+    Check if symbol is an option.
+
+    Args:
+        symbol: Symbol identifier
+
+    Returns:
+        bool: True if option symbol
+    """
+    return 'CE' in symbol.upper() or 'PE' in symbol.upper()
+
 
 def get_active_symbols() -> List[str]:
     """

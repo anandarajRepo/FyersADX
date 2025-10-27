@@ -17,7 +17,7 @@ from models.trading_models import (
 )
 from services.analysis_service import ADXTechnicalAnalysisService
 from services.market_timing_service import MarketTimingService
-from config.settings import ADXStrategyConfig, TradingConfig
+from config.settings import ADXStrategyConfig, TradingConfig, FyersConfig
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,8 @@ class ADXStrategy:
             self,
             strategy_config: ADXStrategyConfig,
             trading_config: TradingConfig,
-            symbols: List[str]
+            symbols: List[str],
+            fyers_config: Optional[FyersConfig] = None
     ):
         """
         Initialize the ADX strategy.
@@ -52,6 +53,7 @@ class ADXStrategy:
         self.strategy_config = strategy_config
         self.trading_config = trading_config
         self.symbols = symbols
+        self.fyers_config = fyers_config
 
         # Initialize services
         self.analysis_service = ADXTechnicalAnalysisService(strategy_config)
@@ -331,10 +333,63 @@ class ADXStrategy:
 
             # In live trading mode, place actual order
             if self.trading_config.enable_order_execution:
-                # TODO: Integrate with Fyers order placement API
+                from config.symbols import get_lot_size, is_option_symbol
+
                 logger.info(f"LIVE TRADE: Placing order for {signal.symbol}")
-                # order_id = await self.fyers_service.place_order(...)
-                pass
+
+                # Determine order type based on symbol
+                order_type = 2  # MARKET order
+                product_type = "INTRADAY"
+
+                # For options, verify quantity is in lot multiples
+                lot_size = get_lot_size(signal.symbol)
+                if is_option_symbol(signal.symbol):
+                    if quantity % lot_size != 0:
+                        logger.warning(f"Adjusting quantity {quantity} to lot multiple")
+                        quantity = (quantity // lot_size) * lot_size
+                        if quantity == 0:
+                            quantity = lot_size
+
+                # Prepare order data
+                order_data = {
+                    "symbol": signal.symbol,
+                    "qty": quantity,
+                    "type": order_type,  # 2 = MARKET, 1 = LIMIT
+                    "side": 1 if signal.signal_type == SignalType.LONG else -1,  # 1=BUY, -1=SELL
+                    "productType": product_type,
+                    "limitPrice": 0,  # 0 for market orders
+                    "stopPrice": 0,
+                    "validity": "DAY",
+                    "disclosedQty": 0,
+                    "offlineOrder": False
+                }
+
+                # Place order via Fyers API
+                try:
+                    # Initialize Fyers API if not already done
+                    if not hasattr(self, 'fyers_api'):
+                        from fyers_apiv3 import fyersModel
+                        self.fyers_api = fyersModel.FyersModel(
+                            client_id=self.fyers_config.client_id,
+                            token=self.fyers_config.access_token,
+                            log_path="logs/"
+                        )
+
+                    logger.info(f"Placing MARKET order: {order_data}")
+                    response = self.fyers_api.place_order(data=order_data)
+
+                    if response and response.get('s') == 'ok':
+                        order_id = response.get('id')
+                        logger.info(f"✓ Order placed successfully: ID={order_id}, Qty={quantity}")
+                        position.order_id = order_id
+                    else:
+                        error_msg = response.get('message', 'Unknown error') if response else 'No response'
+                        logger.error(f"✗ Order placement failed: {error_msg}")
+                        return False
+
+                except Exception as e:
+                    logger.error(f"✗ Error placing order: {e}", exc_info=True)
+                    return False
 
             self.positions[signal.symbol] = position
             logger.info(f"Entered {signal.signal_type.value} position for {signal.symbol}")

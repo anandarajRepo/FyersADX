@@ -181,7 +181,8 @@ def run(symbols, paper):
         strategy = ADXStrategy(
             strategy_config=config.strategy,
             trading_config=config.trading,
-            symbols=trading_symbols
+            symbols=trading_symbols,
+            fyers_config=config.fyers
         )
 
         # Run the strategy
