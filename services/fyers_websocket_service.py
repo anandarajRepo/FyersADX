@@ -101,7 +101,9 @@ class FyersWebSocketService:
             return False
 
         try:
-            # Create WebSocket instance
+            logger.info("Connecting to Fyers WebSocket...")
+
+            # Create WebSocket instance with proper data type
             self.ws_instance = data_ws.FyersDataSocket(
                 access_token=self.fyers_config.access_token,
                 log_path="logs/",
@@ -114,22 +116,27 @@ class FyersWebSocketService:
                 on_message=self._on_message
             )
 
-            # Connect
+            # Connect (non-blocking)
             self.ws_instance.connect()
             self.is_running = True
 
-            # Wait for connection
-            await asyncio.sleep(2)
+            # Wait for connection with timeout
+            max_wait = 10  # seconds
+            wait_interval = 0.5
+            elapsed = 0
 
-            if self.is_connected:
-                logger.info("WebSocket connected successfully")
-                return True
-            else:
-                logger.error("WebSocket connection failed")
-                return False
+            while elapsed < max_wait:
+                if self.is_connected:
+                    logger.info("WebSocket connected successfully")
+                    return True
+                await asyncio.sleep(wait_interval)
+                elapsed += wait_interval
+
+            logger.error("WebSocket connection timeout")
+            return False
 
         except Exception as e:
-            logger.error(f"Error connecting to WebSocket: {e}")
+            logger.error(f"Error connecting to WebSocket: {e}", exc_info=True)
             return False
 
     async def subscribe_symbols(self, symbols: Optional[List[str]] = None) -> bool:
@@ -153,11 +160,20 @@ class FyersWebSocketService:
             # Format symbols for Fyers WebSocket
             symbol_list = [self._format_symbol_for_ws(s) for s in symbols]
 
-            # Subscribe to quotes
-            self.ws_instance.subscribe(
-                symbol=symbol_list,
-                data_type="SymbolUpdate"
-            )
+            logger.info(f"Subscribing to symbols: {symbol_list[:5]}..." if len(symbol_list) > 5 else f"Subscribing to symbols: {symbol_list}")
+
+            # Try different subscription approaches based on Fyers API version
+            try:
+                # Method 1: Direct list subscription
+                self.ws_instance.subscribe(symbol_list)
+            except TypeError as e:
+                logger.warning(f"Direct subscription failed: {e}, trying alternate method...")
+                # Method 2: Individual symbol subscription
+                for sym in symbol_list:
+                    try:
+                        self.ws_instance.subscribe([sym])
+                    except Exception as sym_error:
+                        logger.error(f"Failed to subscribe to {sym}: {sym_error}")
 
             self.subscribed_symbols.update(symbols)
 
@@ -170,7 +186,10 @@ class FyersWebSocketService:
             return True
 
         except Exception as e:
-            logger.error(f"Error subscribing to symbols: {e}")
+            logger.error(f"Error subscribing to symbols: {e}", exc_info=True)
+            logger.error(f"Exception type: {type(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
     async def unsubscribe_symbols(self, symbols: List[str]) -> bool:
@@ -189,29 +208,29 @@ class FyersWebSocketService:
         try:
             symbol_list = [self._format_symbol_for_ws(s) for s in symbols]
 
-            self.ws_instance.unsubscribe(
-                symbol=symbol_list,
-                data_type="SymbolUpdate"
-            )
+            # Unsubscribe - Fyers API expects just the symbol list
+            self.ws_instance.unsubscribe(symbol_list)
 
             self.subscribed_symbols.difference_update(symbols)
 
-            logger.info(f"Unsubscribed from {len(symbols)} symbols")
+            logger.info(f"✓ Unsubscribed from {len(symbols)} symbols")
             return True
 
         except Exception as e:
-            logger.error(f"Error unsubscribing: {e}")
+            logger.error(f"Error unsubscribing: {e}", exc_info=True)
             return False
 
-    def _on_connect(self, message):
+    def _on_connect(self, *args, **kwargs):
         """WebSocket connection callback."""
         self.is_connected = True
         self.reconnect_attempts = 0
+        message = args[0] if args else kwargs.get('message', 'Connected')
         logger.info(f"WebSocket connected: {message}")
 
-    def _on_close(self, message):
+    def _on_close(self, *args, **kwargs):
         """WebSocket close callback."""
         self.is_connected = False
+        message = args[0] if args else kwargs.get('message', 'Connection closed')
         logger.warning(f"WebSocket closed: {message}")
 
         # Attempt reconnection
@@ -220,8 +239,9 @@ class FyersWebSocketService:
             logger.info(f"Attempting reconnection {self.reconnect_attempts}/{self.max_reconnect_attempts}")
             asyncio.create_task(self._reconnect())
 
-    def _on_error(self, message):
+    def _on_error(self, *args, **kwargs):
         """WebSocket error callback."""
+        message = args[0] if args else kwargs.get('message', 'Unknown error')
         logger.error(f"WebSocket error: {message}")
 
         # Notify error callbacks
@@ -231,13 +251,20 @@ class FyersWebSocketService:
             except Exception as e:
                 logger.error(f"Error in error callback: {e}")
 
-    def _on_message(self, message):
+    def _on_message(self, *args, **kwargs):
         """
         WebSocket message callback.
 
         Processes incoming quotes and calculates indicators.
         """
         try:
+            # Get message from args or kwargs
+            message = args[0] if args else kwargs.get('message')
+
+            if not message:
+                logger.debug("Received empty message")
+                return
+
             # Parse message
             if isinstance(message, str):
                 data = json.loads(message)
@@ -337,9 +364,17 @@ class FyersWebSocketService:
         return symbol if symbol else None
 
     def _format_symbol_for_ws(self, symbol: str) -> str:
-        """Format symbol for Fyers WebSocket subscription."""
-        # Fyers expects format like: NSE:RELIANCE-EQ
-        # This is already our standard format
+        """
+        Format symbol for Fyers WebSocket subscription.
+
+        Args:
+            symbol: Symbol in format NSE:RELIANCE-EQ or NSE:NIFTY25NOV24000CE
+
+        Returns:
+            Formatted symbol string
+        """
+        # Fyers WebSocket expects symbols in the format: NSE:RELIANCE-EQ
+        # This is already our standard format, so just return as-is
         return symbol
 
     async def _reconnect(self) -> None:
@@ -472,16 +507,27 @@ class HybridADXDataService:
 
     async def start(self) -> bool:
         """Start the data service."""
-        # Try WebSocket first
-        if await self.ws_service.connect():
-            await self.ws_service.subscribe_symbols()
-            self.use_websocket = True
-            return True
+        try:
+            # Try WebSocket first
+            logger.info("Attempting WebSocket connection...")
+            if await self.ws_service.connect():
+                await self.ws_service.subscribe_symbols()
+                self.use_websocket = True
+                logger.info("Using WebSocket for real-time data")
+                return True
+        except Exception as e:
+            logger.error(f"WebSocket initialization failed: {e}")
 
         # Fallback to REST
-        logger.warning("WebSocket failed, using REST API fallback")
+        logger.warning("⚠ WebSocket failed, using REST API fallback")
         self.use_websocket = False
-        return self.fyers_api is not None
+
+        if self.fyers_api is None:
+            logger.error("✗ REST API also not available - no data source")
+            return False
+
+        logger.info("✓ Using REST API for data (polling mode)")
+        return True
 
     async def get_quote(self, symbol: str) -> Optional[LiveQuote]:
         """
@@ -504,6 +550,7 @@ class HybridADXDataService:
     async def _get_quote_from_rest(self, symbol: str) -> Optional[LiveQuote]:
         """Get quote from REST API."""
         if not self.fyers_api:
+            logger.debug("REST API not available")
             return None
 
         try:
@@ -511,37 +558,39 @@ class HybridADXDataService:
 
             # Fyers REST API call
             data = {
-                "symbol": symbol,
-                "ohlcv_flag": "1"
+                "symbols": symbol
             }
 
             response = self.fyers_api.quotes(data)
 
             if response and response.get('s') == 'ok':
-                quote_data = response['d'][0]
+                # Handle response - Fyers returns data in 'd' key
+                if 'd' not in response or not response['d']:
+                    logger.debug(f"No data in response for {symbol}")
+                    return None
+
+                quote_data = response['d'][0]['v']  # 'v' contains the quote values
 
                 quote = LiveQuote(
                     symbol=symbol,
                     timestamp=datetime.now(),
-                    ltp=quote_data.get('v', {}).get('lp', 0),
-                    open=quote_data.get('v', {}).get('open_price', 0),
-                    high=quote_data.get('v', {}).get('high_price', 0),
-                    low=quote_data.get('v', {}).get('low_price', 0),
-                    close=quote_data.get('v', {}).get('prev_close_price', 0),
-                    volume=quote_data.get('v', {}).get('volume', 0)
+                    ltp=float(quote_data.get('lp', 0)),
+                    open=float(quote_data.get('open_price', 0)),
+                    high=float(quote_data.get('high_price', 0)),
+                    low=float(quote_data.get('low_price', 0)),
+                    close=float(quote_data.get('prev_close_price', 0)),
+                    volume=int(quote_data.get('volume', 0))
                 )
 
                 return quote
+            else:
+                error_msg = response.get('message', 'Unknown error') if response else 'No response'
+                logger.debug(f"REST API error for {symbol}: {error_msg}")
+                return None
 
         except Exception as e:
-            logger.error(f"Error getting quote from REST: {e}")
-
-        return None
-
-    async def stop(self) -> None:
-        """Stop the data service."""
-        await self.ws_service.disconnect()
-        logger.info(f"Data service stopped (REST fallback used {self.rest_fallback_count} times)")
+            logger.error(f"Error getting quote from REST for {symbol}: {e}")
+            return None
 
 
 # Example usage

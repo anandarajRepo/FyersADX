@@ -42,6 +42,20 @@ class ADXStrategy:
             symbols: List[str],
             fyers_config: Optional[FyersConfig] = None
     ):
+
+        # ADD THIS: Initialize data service for real-time quotes and indicators
+        from services.fyers_websocket_service import HybridADXDataService
+
+        self.data_service = None
+        if fyers_config and fyers_config.is_authenticated():
+            self.data_service = HybridADXDataService(
+                fyers_config=fyers_config,
+                strategy_config=strategy_config,
+                symbols=symbols
+            )
+            logger.info("Initialized HybridADXDataService for real-time data")
+        else:
+            logger.warning("No data service initialized - running in limited mode")
         """
         Initialize the ADX strategy.
 
@@ -84,15 +98,25 @@ class ADXStrategy:
         logger.info(f"Square-off time: {strategy_config.square_off_time}")
 
     async def run_strategy_cycle(self) -> None:
-        """
-        Main strategy execution cycle.
-
-        This is the heart of the strategy that runs continuously during market hours.
-        """
+        """Main strategy execution cycle."""
         self.is_running = True
         logger.info("Starting ADX strategy cycle")
 
         try:
+            # START DATA SERVICE
+            if self.data_service:
+                logger.info("Starting data service...")
+                service_started = await self.data_service.start()
+                if not service_started:
+                    logger.error("Failed to start data service")
+                    return
+                logger.info("Data service started successfully")
+
+                # Setup callbacks for real-time updates
+                self._setup_data_callbacks()
+            else:
+                logger.warning("Running without data service - limited functionality")
+
             while self.is_running:
                 # Check if market is open
                 if not self.timing_service.is_market_open():
@@ -114,7 +138,7 @@ class ADXStrategy:
                 # Monitor existing positions
                 await self._monitor_positions()
 
-                # Scan for new signals (only if we can still enter positions)
+                # Scan for new signals
                 if (self.timing_service.is_signal_generation_time() and
                         not self.positions_squared_off_today and
                         len(self.positions) < self.strategy_config.max_positions):
@@ -126,8 +150,8 @@ class ADXStrategy:
                 # Update performance metrics
                 self._update_metrics()
 
-                # Log status
-                if self.daily_trades % 10 == 0:  # Log every 10 cycles
+                # Log status periodically
+                if self.daily_trades % 10 == 0:
                     self._log_strategy_status()
 
                 # Sleep before next cycle
@@ -137,20 +161,59 @@ class ADXStrategy:
             logger.error(f"Error in strategy cycle: {e}", exc_info=True)
             raise
         finally:
+            # CLEANUP: Stop data service
+            if self.data_service:
+                logger.info("Stopping data service...")
+                await self.data_service.stop()
+
             self.is_running = False
             logger.info("Strategy cycle stopped")
 
+    def _setup_data_callbacks(self) -> None:
+        """Setup callbacks for real-time data updates."""
+        if not self.data_service:
+            return
+
+        def on_quote_update(quote: LiveQuote):
+            """Handle real-time quote updates."""
+            logger.debug(f"Quote update: {quote.symbol} @ {quote.ltp}")
+
+            # Update position if exists
+            if quote.symbol in self.positions:
+                self.positions[quote.symbol].update_price(quote.ltp)
+
+        def on_indicator_update(indicators: ADXIndicators):
+            """Handle real-time indicator updates."""
+            logger.debug(f"Indicator update: {indicators.symbol} - "
+                         f"+DI: {indicators.di_plus:.2f}, -DI: {indicators.di_minus:.2f}, "
+                         f"ADX: {indicators.adx:.2f}")
+
+        def on_error(error_message):
+            """Handle data service errors."""
+            logger.error(f"Data service error: {error_message}")
+
+        # Register callbacks
+        self.data_service.ws_service.register_quote_callback(on_quote_update)
+        self.data_service.ws_service.register_indicator_callback(on_indicator_update)
+        self.data_service.ws_service.register_error_callback(on_error)
+
+        logger.info("Data callbacks registered")
+
     async def _update_market_state(self) -> None:
         """Update market data for all symbols."""
-        # This would connect to your data service (WebSocket/REST)
-        # For now, it's a placeholder
-        logger.debug("Updating market state...")
+        if not self.data_service:
+            logger.warning("No data service available")
+            return
+
+        # Data is automatically updated via WebSocket callbacks
+        # This method can be used for any additional state management
+        logger.debug("Market state updated via WebSocket")
 
     async def _scan_for_di_crossovers(self) -> None:
         """
         Scan all symbols for DI crossovers and generate signals.
         """
-        logger.debug(f"Scanning {len(self.symbols)} symbols for crossovers")
+        logger.info(f"Scanning {len(self.symbols)} symbols for crossovers")
 
         for symbol in self.symbols:
             try:
@@ -591,16 +654,59 @@ class ADXStrategy:
             return entry_price - reward
 
     def _get_current_indicators(self, symbol: str) -> Optional[ADXIndicators]:
-        """Get current ADX indicators for a symbol (placeholder)."""
-        # TODO: Integrate with your data service
-        # For now, return from analysis service history
-        history = self.analysis_service.get_indicator_history(symbol, 1)
-        return history[0] if history else None
+        """
+        Get current ADX indicators for a symbol.
 
-    def _get_live_quote(self, symbol: str) -> Optional[LiveQuote]:
-        """Get live quote for a symbol (placeholder)."""
-        # TODO: Integrate with your WebSocket service
+        Args:
+            symbol: Symbol identifier
+
+        Returns:
+            Latest ADXIndicators or None if not available
+        """
+        if self.data_service:
+            # Try to get from WebSocket service
+            indicators = self.data_service.ws_service.get_latest_indicators(symbol)
+            if indicators:
+                return indicators
+
+            # Fallback: Try from analysis service history
+            logger.debug(f"No WebSocket indicators for {symbol}, checking history")
+
+        # Fallback to analysis service history
+        history = self.analysis_service.get_indicator_history(symbol, 1)
+        if history:
+            return history[0]
+
+        logger.debug(f"No indicators available for {symbol}")
         return None
+
+    async def _get_live_quote(self, symbol: str) -> Optional[LiveQuote]:
+        """
+        Get live quote for a symbol.
+
+        Args:
+            symbol: Symbol identifier
+
+        Returns:
+            Latest LiveQuote or None if not available
+        """
+        if not self.data_service:
+            logger.warning(f"No data service available for {symbol}")
+            return None
+
+        try:
+            # Get quote from hybrid data service (WebSocket or REST fallback)
+            quote = await self.data_service.get_quote(symbol)
+
+            if quote:
+                return quote
+            else:
+                logger.debug(f"No quote available for {symbol}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error getting quote for {symbol}: {e}")
+            return None
 
     def _update_metrics(self) -> None:
         """Update strategy performance metrics."""
