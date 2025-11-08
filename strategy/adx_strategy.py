@@ -777,14 +777,14 @@ class ADXStrategy:
                 return indicators
 
             # Fallback: Try from analysis service history
-            logger.debug(f"No WebSocket indicators for {symbol}, checking history")
+            logger.info(f"No WebSocket indicators for {symbol}, checking history")
 
         # Fallback to analysis service history
         history = self.analysis_service.get_indicator_history(symbol, 1)
         if history:
             return history[0]
 
-        logger.debug(f"No indicators available for {symbol}")
+        logger.info(f"No indicators available for {symbol}")
         return None
 
     async def _get_live_quote(self, symbol: str) -> Optional[LiveQuote]:
@@ -828,7 +828,7 @@ class ADXStrategy:
 
         logger.info(f"Strategy Status: "
                     f"Positions {len(self.positions)}/{self.strategy_config.max_positions} | "
-                    f"Daily P&L ₹{self.daily_pnl:.2f} | "
+                    f"Daily P&L RS.{self.daily_pnl:.2f} | "
                     f"Trades {self.daily_trades} | "
                     f"Square-off in {time_str}")
 

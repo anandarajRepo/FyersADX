@@ -215,7 +215,7 @@ class ADXTechnicalAnalysisService:
             if symbol in self.indicator_history and len(self.indicator_history[symbol]) >= 2:
                 previous_indicators = self.indicator_history[symbol][-2]
             else:
-                logger.debug(f"No previous indicators available for {symbol}")
+                logger.info(f"No previous indicators available for {symbol}")
                 return None
 
         # Check for +DI crossing above -DI (LONG signal)
