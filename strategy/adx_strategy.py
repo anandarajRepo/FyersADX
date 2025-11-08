@@ -347,7 +347,7 @@ class ADXStrategy:
 
     async def _execute_signal(self, signal: ADXSignal) -> bool:
         """
-        Execute a trading signal.
+        Execute a trading signal with comprehensive logging and error handling.
 
         Args:
             signal: ADXSignal to execute
@@ -356,7 +356,9 @@ class ADXStrategy:
             bool: True if execution successful
         """
         try:
-            # Validate entry time
+            # ═══════════════════════════════════════════════════════
+            # VALIDATE ENTRY CONDITIONS
+            # ═══════════════════════════════════════════════════════
             is_valid, reason = self.timing_service.validate_entry_time()
             if not is_valid:
                 logger.warning(f"Entry rejected for {signal.symbol}: {reason}")
@@ -364,14 +366,18 @@ class ADXStrategy:
 
             # Calculate position size
             quantity = self.strategy_config.calculate_position_size(
-                signal.entry_price, signal.stop_loss
+                signal.entry_price, signal.stop_loss, signal.symbol
             )
 
             if quantity == 0:
                 logger.warning(f"Position size calculation returned 0 for {signal.symbol}")
                 return False
 
-            # Create position
+            logger.info(f"Position calculated: {signal.symbol} x {quantity}")
+
+            # ═══════════════════════════════════════════════════════
+            # CREATE POSITION OBJECT
+            # ═══════════════════════════════════════════════════════
             position = Position(
                 symbol=signal.symbol,
                 category=signal.category,
@@ -387,80 +393,181 @@ class ADXStrategy:
                 must_square_off_at=signal.square_off_time
             )
 
-            # In paper trading mode, just track the position
-            if self.trading_config.enable_paper_trading:
+            # ═══════════════════════════════════════════════════════
+            # PAPER TRADING MODE
+            # ═══════════════════════════════════════════════════════
+            if self.trading_config.enable_paper_trading and not self.trading_config.enable_order_execution:
                 self.positions[signal.symbol] = position
-                logger.info(f"PAPER TRADE: Entered {signal.signal_type.value} position "
-                            f"for {signal.symbol} at ₹{signal.entry_price:.2f}")
+                logger.info("=" * 70)
+                logger.info("PAPER TRADE EXECUTED")
+                logger.info("=" * 70)
+                logger.info(f"   Type: {signal.signal_type.value}")
+                logger.info(f"   Symbol: {signal.symbol}")
+                logger.info(f"   Entry: ₹{signal.entry_price:.2f}")
+                logger.info(f"   Quantity: {quantity}")
+                logger.info(f"   Stop Loss: ₹{signal.stop_loss:.2f}")
+                logger.info(f"   Target: ₹{signal.target_price:.2f}")
+                logger.info("=" * 70)
                 return True
 
-            # In live trading mode, place actual order
+            # ═══════════════════════════════════════════════════════
+            # LIVE TRADING MODE - PLACE REAL ORDER
+            # ═══════════════════════════════════════════════════════
             if self.trading_config.enable_order_execution:
+                logger.info("=" * 70)
+                logger.info("LIVE TRADING MODE - PLACING REAL ORDER")
+                logger.info("=" * 70)
+
+                # Validate Fyers authentication
+                if not self.fyers_config or not self.fyers_config.is_authenticated():
+                    logger.error("FATAL ERROR: Fyers not authenticated!")
+                    logger.error("   Run: python main.py auth")
+                    logger.error("=" * 70)
+                    return False
+
                 from config.symbols import get_lot_size, is_option_symbol
 
-                logger.info(f"LIVE TRADE: Placing order for {signal.symbol}")
-
-                # Determine order type based on symbol
-                order_type = 2  # MARKET order
-                product_type = "INTRADAY"
-
-                # For options, verify quantity is in lot multiples
+                # Adjust quantity for options (must be in lot multiples)
                 lot_size = get_lot_size(signal.symbol)
+                original_qty = quantity
+
                 if is_option_symbol(signal.symbol):
                     if quantity % lot_size != 0:
-                        logger.warning(f"Adjusting quantity {quantity} to lot multiple")
                         quantity = (quantity // lot_size) * lot_size
                         if quantity == 0:
                             quantity = lot_size
+                        logger.info(f"Lot size adjustment: {original_qty} → {quantity} (Lot: {lot_size})")
 
-                # Prepare order data
+                # Update position with adjusted quantity
+                position.quantity = quantity
+
+                # Prepare order data for Fyers API
                 order_data = {
                     "symbol": signal.symbol,
                     "qty": quantity,
-                    "type": order_type,  # 2 = MARKET, 1 = LIMIT
+                    "type": 2,  # 2 = MARKET ORDER
                     "side": 1 if signal.signal_type == SignalType.LONG else -1,  # 1=BUY, -1=SELL
-                    "productType": product_type,
-                    "limitPrice": 0,  # 0 for market orders
+                    "productType": "INTRADAY",
+                    "limitPrice": 0,
                     "stopPrice": 0,
                     "validity": "DAY",
                     "disclosedQty": 0,
                     "offlineOrder": False
                 }
 
-                # Place order via Fyers API
+                logger.info(f"   ORDER REQUEST:")
+                logger.info(f"   Symbol: {signal.symbol}")
+                logger.info(f"   Direction: {signal.signal_type.value}")
+                logger.info(f"   Quantity: {quantity}")
+                logger.info(f"   Order Type: MARKET")
+                logger.info(f"   Price (est): ₹{signal.entry_price:.2f}")
+                logger.info(f"   Product Type: INTRADAY")
+                logger.info(f"   Side Code: {'BUY (1)' if order_data['side'] == 1 else 'SELL (-1)'}")
+
                 try:
-                    # Initialize Fyers API if not already done
+                    # Initialize Fyers API client if not already done
                     if not hasattr(self, 'fyers_api'):
                         from fyers_apiv3 import fyersModel
+
+                        logger.info("🔧 Initializing Fyers API client...")
                         self.fyers_api = fyersModel.FyersModel(
                             client_id=self.fyers_config.client_id,
                             token=self.fyers_config.access_token,
                             log_path="logs/"
                         )
+                        logger.info(" Fyers API client initialized")
 
-                    logger.info(f"Placing MARKET order: {order_data}")
+                    # Place the order
+                    logger.info(" Sending order to Fyers API...")
+                    logger.info(f"   Full order payload: {order_data}")
+
                     response = self.fyers_api.place_order(data=order_data)
 
+                    logger.info(f" Received response from Fyers:")
+                    logger.info(f"   {response}")
+
+                    # Check if order was successful
                     if response and response.get('s') == 'ok':
                         order_id = response.get('id')
-                        logger.info(f"✓ Order placed successfully: ID={order_id}, Qty={quantity}")
-                        position.order_id = order_id
+
+                        logger.info("=" * 70)
+                        logger.info(" ORDER PLACED SUCCESSFULLY!  ")
+                        logger.info("=" * 70)
+                        logger.info(f"   Order ID: {order_id}")
+                        logger.info(f"   Symbol: {signal.symbol}")
+                        logger.info(f"   Direction: {signal.signal_type.value}")
+                        logger.info(f"   Quantity: {quantity}")
+                        logger.info(f"   Entry Price: ₹{signal.entry_price:.2f}")
+                        logger.info(f"   Stop Loss: ₹{signal.stop_loss:.2f}")
+                        logger.info(f"   Target: ₹{signal.target_price:.2f}")
+                        logger.info(f"   Risk: ₹{abs(signal.entry_price - signal.stop_loss) * quantity:.2f}")
+                        logger.info(f"   Reward: ₹{abs(signal.target_price - signal.entry_price) * quantity:.2f}")
+                        logger.info("=" * 70)
+
+                        # Add position to active positions dictionary
+                        self.positions[signal.symbol] = position
+                        return True
+
                     else:
-                        error_msg = response.get('message', 'Unknown error') if response else 'No response'
-                        logger.error(f"✗ Order placement failed: {error_msg}")
+                        # Order placement failed
+                        error_msg = response.get('message', 'Unknown error') if response else 'No response received'
+                        error_code = response.get('code', 'N/A') if response else 'N/A'
+
+                        logger.error("=" * 70)
+                        logger.error("  ORDER PLACEMENT FAILED ")
+                        logger.error("=" * 70)
+                        logger.error(f"   Error Message: {error_msg}")
+                        logger.error(f"   Error Code: {error_code}")
+                        logger.error(f"   Full Response: {response}")
+                        logger.error(f"   Symbol: {signal.symbol}")
+                        logger.error(f"   Quantity: {quantity}")
+                        logger.error("=" * 70)
+                        logger.error("")
+                        logger.error("POSSIBLE CAUSES:")
+                        logger.error("  • Insufficient funds in trading account")
+                        logger.error("  • Symbol not available for trading")
+                        logger.error("  • Market hours restriction")
+                        logger.error("  • Quantity not in proper lot multiples")
+                        logger.error("  • Invalid symbol format")
+                        logger.error("  • API rate limit exceeded")
+                        logger.error("=" * 70)
+
                         return False
 
                 except Exception as e:
-                    logger.error(f"✗ Error placing order: {e}", exc_info=True)
+                    logger.error("=" * 70)
+                    logger.error(" EXCEPTION DURING ORDER PLACEMENT ")
+                    logger.error("=" * 70)
+                    logger.error(f"   Exception Type: {type(e).__name__}")
+                    logger.error(f"   Exception Message: {str(e)}")
+                    logger.error(f"   Symbol: {signal.symbol}")
+                    logger.error("=" * 70)
+                    logger.exception("Full exception traceback:")
+                    logger.error("=" * 70)
                     return False
 
-            self.positions[signal.symbol] = position
-            logger.info(f"Entered {signal.signal_type.value} position for {signal.symbol}")
-
-            return True
+            # ═══════════════════════════════════════════════════════
+            # NO TRADING MODE ENABLED
+            # ═══════════════════════════════════════════════════════
+            logger.error("=" * 70)
+            logger.error(" NO TRADING MODE ENABLED!")
+            logger.error("=" * 70)
+            logger.error("   Current configuration:")
+            logger.error(f"   • ENABLE_PAPER_TRADING: {self.trading_config.enable_paper_trading}")
+            logger.error(f"   • ENABLE_ORDER_EXECUTION: {self.trading_config.enable_order_execution}")
+            logger.error("")
+            logger.error("   To enable trading, update your .env file:")
+            logger.error("   • For paper trading: ENABLE_PAPER_TRADING=true, ENABLE_ORDER_EXECUTION=false")
+            logger.error("   • For live trading: ENABLE_PAPER_TRADING=false, ENABLE_ORDER_EXECUTION=true")
+            logger.error("=" * 70)
+            return False
 
         except Exception as e:
-            logger.error(f"Error executing signal for {signal.symbol}: {e}")
+            logger.error("=" * 70)
+            logger.error(f" FATAL ERROR in _execute_signal: {e}")
+            logger.error("=" * 70)
+            logger.exception("Full traceback:")
+            logger.error("=" * 70)
             return False
 
     async def _monitor_positions(self) -> None:

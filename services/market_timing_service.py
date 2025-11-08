@@ -31,7 +31,7 @@ class MarketTimingService:
     MARKET_OPEN = time(9, 15)  # 9:15 AM
     MARKET_CLOSE = time(15, 30)  # 3:30 PM
     SQUARE_OFF_TIME = time(15, 20)  # 3:20 PM - MANDATORY EXIT TIME
-    SIGNAL_CUTOFF_TIME = time(14, 0)  # 2:00 PM - Stop generating new signals
+    SIGNAL_CUTOFF_TIME = time(14, 30)  # 2:30 PM - Stop generating new signals
 
     # Pre-market and post-market timings
     PRE_MARKET_OPEN = time(9, 0)  # 9:00 AM

@@ -216,8 +216,8 @@ class TradingConfig:
         max_daily_trades: Maximum trades per day
         backtest_mode: Running in backtest mode
     """
-    enable_paper_trading: bool = os.getenv("ENABLE_PAPER_TRADING", "true").lower() == "true"
-    enable_order_execution: bool = os.getenv("ENABLE_ORDER_EXECUTION", "false").lower() == "true"
+    enable_paper_trading: bool = os.getenv("ENABLE_PAPER_TRADING", "false").lower() == "true"
+    enable_order_execution: bool = os.getenv("ENABLE_ORDER_EXECUTION", "true").lower() == "true"
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     monitoring_interval: int = int(os.getenv("MONITORING_INTERVAL", "10"))
     data_update_interval: int = int(os.getenv("DATA_UPDATE_INTERVAL", "5"))
