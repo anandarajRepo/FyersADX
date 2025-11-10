@@ -322,20 +322,20 @@ class ConfigManager:
         print("FyersADX Configuration Summary")
         print("=" * 60)
 
-        print("\n📊 Strategy Configuration:")
+        print("\n Strategy Configuration:")
         print(f"  Portfolio Value: ₹{self.strategy.portfolio_value:,.0f}")
         print(f"  Risk per Trade: {self.strategy.risk_per_trade_pct}%")
         print(f"  Max Positions: {self.strategy.max_positions}")
         print(f"  DI Period: {self.strategy.di_period}")
         print(f"  Square-off Time: {self.strategy.square_off_time} IST")
 
-        print("\n🔧 Trading Configuration:")
+        print("\n Trading Configuration:")
         print(f"  Paper Trading: {'Enabled' if self.trading.enable_paper_trading else 'Disabled'}")
         print(f"  Order Execution: {'Enabled' if self.trading.enable_order_execution else 'Disabled'}")
         print(f"  Log Level: {self.trading.log_level}")
         print(f"  Monitoring Interval: {self.trading.monitoring_interval}s")
 
-        print("\n🔑 Fyers Configuration:")
+        print("\n Fyers Configuration:")
         print(f"  Client ID: {self.fyers.client_id[:10]}..." if self.fyers.client_id else "  Client ID: Not set")
         print(f"  Authenticated: {'Yes' if self.fyers.is_authenticated() else 'No'}")
 

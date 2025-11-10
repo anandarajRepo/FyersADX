@@ -110,6 +110,7 @@ class FyersWebSocketService:
                 litemode=False,
                 write_to_file=False,
                 reconnect=True,
+                reconnect_retry=self.max_reconnect_attempts,
                 on_connect=self._on_connect,
                 on_close=self._on_close,
                 on_error=self._on_error,
@@ -262,7 +263,7 @@ class FyersWebSocketService:
             message = args[0] if args else kwargs.get('message')
 
             if not message:
-                logger.debug("Received empty message")
+                logger.info("Received empty message")
                 return
 
             # Parse message
