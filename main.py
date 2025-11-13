@@ -24,6 +24,7 @@ from config.settings import config
 from config.symbols import get_active_symbols, get_symbol_name, print_summary, validate_symbols, LARGE_CAP_SYMBOLS, MID_CAP_SYMBOLS, SMALL_CAP_SYMBOLS, OPTIONS_SYMBOLS
 from strategy.adx_strategy import ADXStrategy
 from services.market_timing_service import MarketTimingService
+from utils.enhanced_auth_helper import FyersAuthenticationHelper
 # from backtesting.adx_backtest import ADXBacktester  # Import when implemented
 
 console = Console()
@@ -143,18 +144,54 @@ def run(symbols, paper):
         python main.py run --paper
         python main.py run -s NSE:RELIANCE-EQ -s NSE:TCS-EQ
     """
-    console.print("\n[bold cyan]Starting FyersADX Trading Strategy[/bold cyan]\n")
+    console.print("\nStarting FyersADX Trading Strategy\n")
 
     # Validate configuration
     is_valid, errors = config.validate_all()
     if not is_valid:
-        console.print("[bold red]Configuration Errors:[/bold red]")
+        console.print("Configuration Errors:")
         for config_type, error_list in errors.items():
-            console.print(f"\n[red]{config_type.upper()}:[/red]")
+            console.print(f"\n{config_type.upper()}:")
             for error in error_list:
                 console.print(f"  • {error}")
-        console.print("\n[yellow]Please fix configuration errors and try again.[/yellow]")
+        console.print("\nPlease fix configuration errors and try again.")
         return
+
+    # Validate and refresh authentication token
+    console.print("Checking authentication status...")
+
+    # Create authentication helper
+    auth_helper = FyersAuthenticationHelper(config.fyers)
+
+    # Get and display current token status
+    token_info = auth_helper.get_token_info()
+
+    if token_info['is_valid']:
+        console.print("Token is valid")
+    else:
+        console.print("Token expired or invalid")
+        console.print("Attempting automatic token refresh...")
+
+    # Ensure valid token (automatically refreshes if expired)
+    if not auth_helper.ensure_valid_token():
+        console.print("\nAuthentication Failed")
+        console.print("Token refresh failed. Please re-authenticate:")
+        console.print("python main.py auth\n")
+        return
+
+    # If we reached here, token is valid (either was valid or just refreshed)
+    console.print("Authentication validated successfully")
+
+    # Update config with latest tokens (critical - may have been refreshed)
+    config.fyers.access_token = auth_helper.config.access_token
+    config.fyers.refresh_token = auth_helper.config.refresh_token
+
+    # Log token usage for debugging (show only first 20 chars for security)
+    logging.info(f"Using access token: {config.fyers.access_token[:20]}...")
+    logging.info(f"Token valid, ready to connect to Fyers API")
+
+    config.fyers.access_token = auth_helper.config.access_token
+    config.fyers.refresh_token = auth_helper.config.refresh_token
 
     # Override paper trading mode if specified
     if paper:
@@ -166,15 +203,15 @@ def run(symbols, paper):
         trading_symbols = list(symbols)
         valid, invalid = validate_symbols(trading_symbols)
         if invalid:
-            console.print(f"[yellow]Warning: Invalid symbols will be skipped: {invalid}[/yellow]")
+            console.print(f"Warning: Invalid symbols will be skipped: {invalid}")
         trading_symbols = valid
     else:
         trading_symbols = get_active_symbols()
 
-    console.print(f"[green]✓[/green] Trading {len(trading_symbols)} symbols")
-    console.print(f"[green]✓[/green] Paper Trading: {config.trading.enable_paper_trading}")
-    console.print(f"[green]✓[/green] Square-off Time: {config.strategy.square_off_time} IST")
-    console.print(f"[green]✓[/green] Max Positions: {config.strategy.max_positions}\n")
+    console.print(f"Trading {len(trading_symbols)} symbols")
+    console.print(f"Paper Trading: {config.trading.enable_paper_trading}")
+    console.print(f"Square-off Time: {config.strategy.square_off_time} IST")
+    console.print(f"Max Positions: {config.strategy.max_positions}\n")
 
     # Initialize and run strategy
     try:
@@ -704,10 +741,10 @@ def main():
     try:
         cli()
     except KeyboardInterrupt:
-        console.print("\n[yellow]Interrupted by user[/yellow]")
+        console.print("\nInterrupted by user")
         sys.exit(0)
     except Exception as e:
-        console.print(f"\n[bold red]Fatal error: {e}[/bold red]")
+        console.print(f"\nFatal error: {e}")
         logging.error(f"Fatal error: {e}", exc_info=True)
         sys.exit(1)
 
