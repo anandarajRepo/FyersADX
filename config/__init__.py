@@ -255,7 +255,7 @@ __all__ = [
         with open(init_file, 'w') as f:
             f.write(content)
 
-        print(f"✓ Created {init_file}")
+        print(f"Created {init_file}")
 
     print("=" * 60)
     print("All __init__.py files created successfully!")

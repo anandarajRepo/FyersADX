@@ -214,7 +214,7 @@ class FyersWebSocketService:
 
             self.subscribed_symbols.difference_update(symbols)
 
-            logger.info(f"✓ Unsubscribed from {len(symbols)} symbols")
+            logger.info(f"Unsubscribed from {len(symbols)} symbols")
             return True
 
         except Exception as e:
@@ -520,14 +520,14 @@ class HybridADXDataService:
             logger.error(f"WebSocket initialization failed: {e}")
 
         # Fallback to REST
-        logger.warning("⚠ WebSocket failed, using REST API fallback")
+        logger.warning("WebSocket failed, using REST API fallback")
         self.use_websocket = False
 
         if self.fyers_api is None:
-            logger.error("✗ REST API also not available - no data source")
+            logger.error("REST API also not available - no data source")
             return False
 
-        logger.info("✓ Using REST API for data (polling mode)")
+        logger.info("Using REST API for data (polling mode)")
         return True
 
     async def get_quote(self, symbol: str) -> Optional[LiveQuote]:

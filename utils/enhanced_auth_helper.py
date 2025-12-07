@@ -192,7 +192,7 @@ class FyersAuthenticationHelper:
 
         # Try to refresh the token
         if self.refresh_token():
-            logger.info("✓ Token refreshed successfully")
+            logger.info("Token refreshed successfully")
             return True
 
         logger.error("Token refresh failed - full re-authentication required")
@@ -276,7 +276,7 @@ class FyersAuthenticationHelper:
             response = fyers.get_profile()
 
             if response and response.get('s') == 'ok':
-                logger.info("✓ Token validated with Fyers API")
+                logger.info("Token validated with Fyers API")
                 return True
             else:
                 logger.warning("✗ Token validation failed with Fyers API")
@@ -312,7 +312,7 @@ class FyersAuthenticationHelper:
             auth_code = params.get('auth_code', [None])[0]
 
             if auth_code:
-                logger.info("✓ Authorization code extracted")
+                logger.info("Authorization code extracted")
                 return auth_code
             else:
                 logger.error("✗ No auth_code in URL")
@@ -425,7 +425,7 @@ class FyersAuthenticationHelper:
             with open(env_file, 'w') as f:
                 f.writelines(updated_lines)
 
-            logger.info("✓ .env file updated")
+            logger.info(" .env file updated")
             return True
 
         except Exception as e:
@@ -499,7 +499,7 @@ class FyersAuthenticationHelper:
         print("FYERS AUTHENTICATION STATUS")
         print("=" * 60)
 
-        status = "✓ VALID" if info['is_valid'] else "✗ INVALID/EXPIRED"
+        status = "VALID" if info['is_valid'] else "✗ INVALID/EXPIRED"
         print(f"\nStatus: {status}")
         print(f"Access Token: {'Present' if info['has_access_token'] else 'Missing'}")
         print(f"Refresh Token: {'Present' if info['has_refresh_token'] else 'Missing'}")
@@ -553,6 +553,6 @@ if __name__ == "__main__":
             print("\nAuthentication successful!")
             auth_helper.print_token_info()
         else:
-            print("\n✗ Authentication failed")
+            print("\nAuthentication failed")
     else:
-        print("\n✓ Already authenticated")
+        print("\nAlready authenticated")

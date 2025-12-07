@@ -112,11 +112,11 @@ def _update_env_credentials(client_id: str, secret_key: str, redirect_uri: str) 
         with open(env_file, 'w') as f:
             f.writelines(new_lines)
 
-        console.print(f"[green]✓[/green] Credentials saved to .env file")
+        console.print(f"Credentials saved to .env file")
         return True
 
     except Exception as e:
-        console.print(f"[red]✗[/red] Error saving credentials: {e}")
+        console.print(f"Error saving credentials: {e}")
         return False
 
 
@@ -286,9 +286,9 @@ def auth(client_id, secret_key, redirect_uri, open_browser):
     if not client_id:
         if config.fyers.client_id:
             client_id = config.fyers.client_id
-            console.print(f"[green]✓[/green] Using Client ID from .env: {client_id[:10]}...")
+            console.print(f"Using Client ID from .env: {client_id[:10]}...")
         else:
-            console.print("\n[yellow]Fyers Client ID is required[/yellow]")
+            console.print("\nFyers Client ID is required[/yellow]")
             console.print("Get it from: https://myapi.fyers.in/")
             console.print("Format: ABC123-100")
             client_id = input("\nEnter your Fyers Client ID: ").strip()
@@ -296,14 +296,14 @@ def auth(client_id, secret_key, redirect_uri, open_browser):
     if not secret_key:
         if config.fyers.secret_key:
             secret_key = config.fyers.secret_key
-            console.print(f"[green]✓[/green] Using Secret Key from .env (hidden)")
+            console.print(f"Using Secret Key from .env (hidden)")
         else:
-            console.print("\n[yellow]Fyers Secret Key is required[/yellow]")
+            console.print("\nFyers Secret Key is required[/yellow]")
             import getpass
             secret_key = getpass.getpass("Enter your Fyers Secret Key: ").strip()
 
     if not client_id or not secret_key:
-        console.print("\n[red]✗ Error: Client ID and Secret Key are required[/red]")
+        console.print("\nError: Client ID and Secret Key are required[/red]")
         return
 
     # Update config
@@ -324,7 +324,7 @@ def auth(client_id, secret_key, redirect_uri, open_browser):
 
         # Check if already authenticated
         if auth_helper.is_token_valid():
-            console.print("[green]✓ Already authenticated![/green]")
+            console.print("Already authenticated!")
             auth_helper.print_token_info()
 
             refresh = input("\nDo you want to re-authenticate? (y/N): ").strip().lower()
@@ -338,15 +338,15 @@ def auth(client_id, secret_key, redirect_uri, open_browser):
         success = auth_helper.authenticate()
 
         if success:
-            console.print("\n[bold green]✓ Authentication Successful![/bold green]")
+            console.print("\nAuthentication Successful!")
             auth_helper.print_token_info()
-            console.print("\n[green]Tokens have been saved. You can now run the strategy.[/green]")
+            console.print("\nTokens have been saved. You can now run the strategy.")
         else:
-            console.print("\n[bold red]✗ Authentication Failed[/bold red]")
+            console.print("\nAuthentication Failed")
             console.print("Please check your credentials and try again.")
 
     except Exception as e:
-        console.print(f"\n[bold red]✗ Error: {e}[/bold red]")
+        console.print(f"\nError: {e}")
         logging.error(f"Authentication error: {e}", exc_info=True)
 
 
@@ -363,7 +363,7 @@ def setup():
     """
     console.print("\n")
     console.print(Panel.fit(
-        "[bold cyan]FyersADX Setup Wizard[/bold cyan]\n\n"
+        "FyersADX Setup Wizard\n\n"
         "This wizard will guide you through the initial setup.",
         border_style="cyan"
     ))
@@ -374,7 +374,7 @@ def setup():
     template_file = Path('.env.template')
 
     if env_file.exists():
-        console.print("[green]✓[/green] .env file exists")
+        console.print(".env file exists")
         overwrite = input("Do you want to reconfigure? (y/N): ").strip().lower()
         if overwrite != 'y':
             console.print("[yellow]Skipping configuration setup[/yellow]")
@@ -382,14 +382,14 @@ def setup():
             if template_file.exists():
                 import shutil
                 shutil.copy(template_file, env_file)
-                console.print("[green]✓[/green] Reset .env from template")
+                console.print("Reset .env from template")
     else:
         if template_file.exists():
             import shutil
             shutil.copy(template_file, env_file)
-            console.print("[green]✓[/green] Created .env from template")
+            console.print("Created .env from template")
         else:
-            console.print("[red]✗[/red] .env.template not found!")
+            console.print(".env.template not found!")
             console.print("Please ensure .env.template exists in the project root.")
             return
 
@@ -409,7 +409,7 @@ def setup():
     if client_id and secret_key:
         _update_env_credentials(client_id, secret_key, redirect_uri)
     else:
-        console.print("[red]✗[/red] Client ID and Secret Key are required")
+        console.print("Client ID and Secret Key are required")
         return
 
     # Step 3: Trading PIN
@@ -439,11 +439,11 @@ def setup():
             with open(env_file, 'w') as f:
                 f.writelines(new_lines)
 
-            console.print("[green]✓[/green] PIN saved")
+            console.print("PIN saved")
         except Exception as e:
-            console.print(f"[red]✗[/red] Error saving PIN: {e}")
+            console.print(f"Error saving PIN: {e}")
     else:
-        console.print("[yellow]⚠[/yellow] Invalid PIN format. You can set it later with: python main.py update-pin")
+        console.print("Invalid PIN format. You can set it later with: python main.py update-pin")
 
     # Step 4: Strategy Parameters
     console.print("\n[bold]Step 4: Strategy Parameters[/bold]")
@@ -461,7 +461,7 @@ def setup():
     if max_pos and max_pos.isdigit():
         _update_env_setting('MAX_POSITIONS', max_pos)
 
-    console.print("[green]✓[/green] Configuration saved")
+    console.print("Configuration saved")
 
     # Step 5: Authentication
     console.print("\n[bold]Step 5: Fyers Authentication[/bold]")
@@ -480,7 +480,7 @@ def setup():
         auth_helper = FyersAuthenticationHelper(settings.config.fyers)
 
         if auth_helper.authenticate():
-            console.print("\n[bold green]✓ Setup Complete![/bold green]")
+            console.print("\n[bold green]Setup Complete![/bold green]")
             console.print("\nYou can now:")
             console.print("  • Run diagnostics: [cyan]python main.py diagnostics[/cyan]")
             console.print("  • Check market: [cyan]python main.py market[/cyan]")
@@ -548,25 +548,25 @@ def update_pin(new_pin):
         confirm_pin = getpass.getpass("Confirm new PIN: ").strip()
 
         if new_pin != confirm_pin:
-            console.print("[red]✗ PINs do not match[/red]")
+            console.print("PINs do not match[/red]")
             return
 
     # Validate PIN
     if not new_pin.isdigit() or len(new_pin) < 4 or len(new_pin) > 6:
-        console.print("[red]✗ Invalid PIN format. Must be 4-6 digits.[/red]")
+        console.print("Invalid PIN format. Must be 4-6 digits.[/red]")
         return
 
     try:
         auth_helper = FyersAuthenticationHelper(config.fyers)
 
         if auth_helper.update_pin(new_pin):
-            console.print("[green]✓ PIN updated successfully[/green]")
+            console.print("PIN updated successfully[/green]")
             console.print("\n[dim]PIN has been saved to .env file[/dim]")
         else:
-            console.print("[red]✗ Failed to update PIN[/red]")
+            console.print("Failed to update PIN[/red]")
 
     except Exception as e:
-        console.print(f"[red]✗ Error: {e}[/red]")
+        console.print(f"Error: {e}[/red]")
 
 
 @cli.command()
@@ -574,23 +574,23 @@ def validate():
     """
     Validate system configuration and connectivity.
     """
-    console.print("\n[bold cyan]System Validation[/bold cyan]\n")
+    console.print("\nSystem Validation\n")
 
     # Validate configuration
     is_valid, errors = config.validate_all()
 
     if is_valid:
-        console.print("[green]✓ Configuration is valid[/green]\n")
+        console.print("Configuration is valid\n")
         config.strategy.print_summary()
     else:
-        console.print("[bold red]✗ Configuration Errors:[/bold red]\n")
+        console.print("Configuration Errors:\n")
         for config_type, error_list in errors.items():
-            console.print(f"[red]{config_type.upper()}:[/red]")
+            console.print(f"{config_type.upper()}:")
             for error in error_list:
                 console.print(f"  • {error}")
 
     # Validate symbols
-    console.print("\n[bold cyan]Symbol Validation[/bold cyan]\n")
+    console.print("\nSymbol Validation\n")
     print_summary()
 
 
@@ -643,43 +643,43 @@ def diagnostics():
     # Check configuration
     is_valid, errors = config.validate_all()
     if is_valid:
-        table.add_row("Configuration", "[green]✓ Valid[/green]", "All settings valid")
+        table.add_row("Configuration", "Valid", "All settings valid")
     else:
-        table.add_row("Configuration", "[red]✗ Invalid[/red]", f"{sum(len(e) for e in errors.values())} errors")
+        table.add_row("Configuration", "Invalid", f"{sum(len(e) for e in errors.values())} errors")
 
     # Check Fyers authentication
     if config.fyers.is_authenticated():
-        table.add_row("Fyers Auth", "[green]✓ Authenticated[/green]", "Access token available")
+        table.add_row("Fyers Auth", "Authenticated", "Access token available")
     else:
-        table.add_row("Fyers Auth", "[yellow]⚠ Not Authenticated[/yellow]", "Run 'python main.py auth'")
+        table.add_row("Fyers Auth", "Not Authenticated", "Run 'python main.py auth'")
 
     # Check market status
     timing_service = MarketTimingService()
     if timing_service.is_market_open():
-        table.add_row("Market Status", "[green]✓ Open[/green]", "Market is trading")
+        table.add_row("Market Status", "Open", "Market is trading")
     else:
-        table.add_row("Market Status", "[yellow]⚠ Closed[/yellow]", "Market is not trading")
+        table.add_row("Market Status", "Closed", "Market is not trading")
 
     # Check symbols
     active_count = len(get_active_symbols())
-    table.add_row("Symbols", "[green]✓ Loaded[/green]", f"{active_count} active symbols")
+    table.add_row("Symbols", "Loaded", f"{active_count} active symbols")
 
     # Check directories
     required_dirs = ['logs', 'backtest_results', 'data']
     dirs_exist = all(Path(d).exists() or Path(d).mkdir(exist_ok=True) for d in required_dirs)
     if dirs_exist:
-        table.add_row("Directories", "[green]✓ Ready[/green]", "All required directories exist")
+        table.add_row("Directories", "Ready", "All required directories exist")
     else:
-        table.add_row("Directories", "[yellow]⚠ Missing[/yellow]", "Some directories missing")
+        table.add_row("Directories", "Missing", "Some directories missing")
 
     console.print(table)
 
     # Overall status
     console.print()
     if is_valid and config.fyers.is_authenticated():
-        console.print("[bold green]✓ System is ready for trading[/bold green]")
+        console.print("System is ready for trading")
     else:
-        console.print("[bold yellow]⚠ System needs configuration[/bold yellow]")
+        console.print("System needs configuration")
         console.print("\nNext steps:")
         if not is_valid:
             console.print("  1. Fix configuration errors (check .env file)")
@@ -692,7 +692,7 @@ def test():
     """
     Test WebSocket connection and data feed.
     """
-    console.print("\n[bold cyan]Testing Data Connection[/bold cyan]\n")
+    console.print("\nTesting Data Connection\n")
 
     # TODO: Implement WebSocket test
     console.print("[yellow]WebSocket testing will be implemented with services/fyers_websocket_service.py[/yellow]")
