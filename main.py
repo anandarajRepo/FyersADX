@@ -173,7 +173,7 @@ def run(symbols, paper):
         console.print("Attempting automatic token refresh...")
 
     # Ensure valid token (automatically refreshes if expired)
-    if not auth_helper.ensure_valid_token():
+    if not auth_helper.is_token_valid():
         console.print("\nAuthentication Failed")
         console.print("Token refresh failed. Please re-authenticate:")
         console.print("python main.py auth\n")
