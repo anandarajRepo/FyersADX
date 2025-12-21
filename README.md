@@ -298,7 +298,7 @@ Logs are stored in `logs/` directory:
 
 Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-## ⚠️ Important Notes
+## ️ Important Notes
 
 ### Critical Requirements
 

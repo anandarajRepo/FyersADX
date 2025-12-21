@@ -151,7 +151,7 @@ ENABLE_PAPER_TRADING=false
 ENABLE_ORDER_EXECUTION=true
 ```
 
-⚠️ **WARNING**: Always start with paper trading!
+️ **WARNING**: Always start with paper trading!
 
 ---
 
@@ -166,8 +166,8 @@ python main.py validate
 
 Expected output:
 ```
-✓ Configuration is valid
-✓ All settings valid
+ Configuration is valid
+ All settings valid
 ```
 
 ### Step 2: Test Authentication
@@ -196,7 +196,7 @@ python main.py market
 python main.py diagnostics
 ```
 
-All checks should show ✓ (green checkmark).
+All checks should show  (green checkmark).
 
 ---
 
@@ -218,7 +218,7 @@ What happens:
 
 ### Live Trading (Real Money)
 
-⚠️ **CRITICAL WARNING**: This involves REAL money!
+️ **CRITICAL WARNING**: This involves REAL money!
 
 Before live trading:
 1. ✅ Test thoroughly in paper trading mode
@@ -466,7 +466,7 @@ Logs are saved daily in `logs/` directory:
 
 ## Disclaimer
 
-⚠️ **IMPORTANT DISCLAIMER**:
+️ **IMPORTANT DISCLAIMER**:
 
 This software is for **EDUCATIONAL AND RESEARCH PURPOSES ONLY**.
 

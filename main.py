@@ -486,7 +486,7 @@ def setup():
             console.print("  • Check market: [cyan]python main.py market[/cyan]")
             console.print("  • Start paper trading: [cyan]python main.py run --paper[/cyan]")
         else:
-            console.print("\n[yellow]⚠ Authentication failed[/yellow]")
+            console.print("\n[yellow] Authentication failed[/yellow]")
             console.print("You can retry later with: [cyan]python main.py auth[/cyan]")
     else:
         console.print("\n[yellow]Authentication skipped.[/yellow]")

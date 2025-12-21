@@ -1,15 +1,16 @@
 """
 Enhanced Authentication Helper for Fyers API - WITH TOKEN REFRESH.
 
-Implements actual token refresh and expiry tracking.
+Implements automatic token refresh matching FyersORB implementation.
 """
 
 import os
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 from urllib.parse import parse_qs, urlparse
+import json
 
 try:
     from fyers_apiv3 import fyersModel
@@ -25,18 +26,20 @@ logger = logging.getLogger(__name__)
 
 class FyersAuthenticationHelper:
     """
-    Enhanced authentication helper with ACTUAL token refresh.
+    Enhanced authentication helper with AUTOMATIC token refresh.
 
     Features:
     - OAuth 2.0 flow
     - Secure token storage in .env
     - Token validation with expiry tracking
-    - ACTUAL token refresh implementation
+    - AUTOMATIC token refresh using refresh token
     - PIN-based authentication
+    - Token metadata storage
     """
 
     TOKEN_VALIDITY_HOURS = 24  # Fyers tokens valid for 24 hours
     REFRESH_BUFFER_HOURS = 1   # Refresh if within 1 hour of expiry
+    TOKEN_METADATA_FILE = ".fyers_tokens.json"  # Stores token metadata
 
     def __init__(self, config: FyersConfig):
         """
@@ -48,8 +51,9 @@ class FyersAuthenticationHelper:
         self.config = config
         self.session = None
         self.auto_open_browser = False
+        self.token_metadata = self._load_token_metadata()
 
-        logger.info("Initialized FyersAuthenticationHelper with token refresh support")
+        logger.info("Initialized FyersAuthenticationHelper with automatic token refresh")
 
     def authenticate(self) -> bool:
         """
@@ -59,7 +63,7 @@ class FyersAuthenticationHelper:
             bool: True if authentication successful
         """
         if not FYERS_AVAILABLE:
-            logger.error("Fyers API not available")
+            logger.error("Fyers API not available - install with: pip install fyers-apiv3")
             return False
 
         logger.info("Starting OAuth authentication flow")
@@ -77,7 +81,7 @@ class FyersAuthenticationHelper:
             # Step 2: Generate auth code URL
             auth_url = self.session.generate_authcode()
 
-            logger.info(f"Authorization URL generated")
+            logger.info("Authorization URL generated")
 
             # Step 3: Display URL and instructions
             print("\n" + "=" * 80)
@@ -94,9 +98,9 @@ class FyersAuthenticationHelper:
                 try:
                     import webbrowser
                     webbrowser.open(auth_url)
-                    print("Browser opened")
+                    print(" Browser opened")
                 except Exception as e:
-                    print(f"Could not open browser: {e}")
+                    print(f"✗ Could not open browser: {e}")
                     print("Please copy the URL above manually")
 
             print("\nSTEP 2: Manual Steps")
@@ -107,7 +111,7 @@ class FyersAuthenticationHelper:
             print("  5. Copy the ENTIRE redirect URL from browser")
 
             print("\nThe redirect URL looks like:")
-            print("  http://localhost:8000/callback?auth_code=XXXXX&state=sample_state")
+            print("  https://trade.fyers.in/api-login/redirect-to-app?auth_code=XXXXX&state=sample_state")
             print("\n" + "=" * 80)
 
             redirect_url = input("\nPaste the redirect URL here: ").strip()
@@ -127,20 +131,28 @@ class FyersAuthenticationHelper:
             if not self._validate_token_response(response):
                 return False
 
-            # Store tokens in config WITH timestamp
-            self.config.access_token = response['access_token']
-            self.config.refresh_token = response.get('refresh_token', auth_code)
+            # Extract tokens
+            access_token = response['access_token']
+            refresh_token = response.get('refresh_token', auth_code)  # Use auth_code as fallback
+
+            # Store tokens in config
+            self.config.access_token = access_token
+            self.config.refresh_token = refresh_token
+
+            # Save token metadata (includes timestamp)
+            self._save_token_metadata(access_token, refresh_token, auth_code)
 
             # Save to .env file (tokens only, no timestamp)
             self._update_env_file()
 
-            logger.info("Tokens saved to .env file")
-            logger.info("Metadata saved to .fyers_tokens.json")
+            logger.info(" Authentication successful!")
+            logger.info(" Tokens saved to .env file")
+            logger.info(" Metadata saved to .fyers_tokens.json")
 
             return True
 
         except Exception as e:
-            logger.error(f"Authentication failed: {e}")
+            logger.error(f"Authentication failed: {e}", exc_info=True)
             return False
 
     def is_token_valid(self) -> bool:
@@ -154,56 +166,103 @@ class FyersAuthenticationHelper:
             logger.debug("No access token available")
             return False
 
-        # Check token expiry
-        token_created_at = self._get_token_timestamp()
-        if not token_created_at:
-            logger.warning("No token timestamp found - assuming expired")
+        # Check token expiry from metadata
+        if not self.token_metadata:
+            logger.warning("No token metadata found - assuming expired")
             return False
 
-        # Calculate expiry
-        expiry_time = token_created_at + timedelta(hours=self.TOKEN_VALIDITY_HOURS)
-        now = datetime.now()
+        created_at_str = self.token_metadata.get('created_at')
+        if not created_at_str:
+            logger.warning("No creation timestamp in metadata - assuming expired")
+            return False
 
-        is_valid = now < expiry_time
+        try:
+            created_at = datetime.fromisoformat(created_at_str)
+            expiry_time = created_at + timedelta(hours=self.TOKEN_VALIDITY_HOURS)
+            now = datetime.now()
 
-        if is_valid:
-            time_remaining = expiry_time - now
-            logger.debug(f"Token valid for {time_remaining.total_seconds()/3600:.1f} more hours")
-        else:
-            logger.warning(f"Token expired {(now - expiry_time).total_seconds()/3600:.1f} hours ago")
+            is_valid = now < expiry_time
 
-        return is_valid
+            if is_valid:
+                time_remaining = expiry_time - now
+                hours_remaining = time_remaining.total_seconds() / 3600
+                logger.debug(f"Token valid for {hours_remaining:.1f} more hours")
+            else:
+                time_expired = now - expiry_time
+                hours_expired = time_expired.total_seconds() / 3600
+                logger.warning(f"Token expired {hours_expired:.1f} hours ago")
+
+            return is_valid
+
+        except Exception as e:
+            logger.error(f"Error checking token validity: {e}")
+            return False
+
+    def should_refresh_token(self) -> bool:
+        """
+        Check if token should be refreshed (within buffer period before expiry).
+
+        Returns:
+            bool: True if token should be refreshed
+        """
+        if not self.token_metadata:
+            return True
+
+        created_at_str = self.token_metadata.get('created_at')
+        if not created_at_str:
+            return True
+
+        try:
+            created_at = datetime.fromisoformat(created_at_str)
+            expiry_time = created_at + timedelta(hours=self.TOKEN_VALIDITY_HOURS)
+            refresh_threshold = expiry_time - timedelta(hours=self.REFRESH_BUFFER_HOURS)
+            now = datetime.now()
+
+            should_refresh = now >= refresh_threshold
+
+            if should_refresh:
+                logger.info(f"Token should be refreshed (within {self.REFRESH_BUFFER_HOURS}h buffer)")
+
+            return should_refresh
+
+        except Exception as e:
+            logger.error(f"Error checking refresh requirement: {e}")
+            return True
 
     def ensure_valid_token(self) -> bool:
         """
         Ensure we have a valid access token - REFRESH if needed.
 
-        This method ACTUALLY refreshes the token using Fyers API.
+        This is the KEY method that provides automatic token refresh.
 
         Returns:
             bool: True if valid token available (after refresh if needed)
         """
-        # Check if current token is valid
-        if self.is_token_valid():
-            logger.info("Token is valid, no refresh needed")
+        # Check if current token is valid and doesn't need refresh
+        if self.is_token_valid() and not self.should_refresh_token():
+            logger.info(" Token is valid, no refresh needed")
             return True
 
-        logger.warning("Token expired or missing - attempting refresh...")
+        # Check if token is expired
+        if not self.is_token_valid():
+            logger.warning(" Token expired - attempting refresh...")
+        else:
+            logger.info(" Token approaching expiry - proactive refresh...")
 
         # Try to refresh the token
         if self.refresh_token():
-            logger.info("Token refreshed successfully")
+            logger.info(" Token refreshed successfully")
             return True
 
-        logger.error("Token refresh failed - full re-authentication required")
+        logger.error("✗ Token refresh failed - full re-authentication required")
+        logger.error("  Run: python main.py auth")
         return False
 
     def refresh_token(self) -> bool:
         """
-        Refresh the access token using Fyers API.
+        Refresh the access token using the auth code.
 
-        IMPORTANT: Fyers API v3 requires full re-authentication.
-        This method attempts to use the refresh token/auth code to get new access token.
+        Fyers API v3 requires re-generation using the original auth code.
 
         Returns:
             bool: True if refresh successful
@@ -212,9 +271,12 @@ class FyersAuthenticationHelper:
             logger.error("Fyers API not available")
             return False
 
-        if not self.config.refresh_token:
-            logger.error("No refresh token available")
+        # Get auth code from metadata
+        if not self.token_metadata or 'auth_code' not in self.token_metadata:
+            logger.error("No auth code available for refresh - full re-authentication required")
             return False
+
+        auth_code = self.token_metadata['auth_code']
 
         try:
             logger.info("Attempting to refresh access token...")
@@ -228,30 +290,37 @@ class FyersAuthenticationHelper:
                 grant_type="authorization_code"
             )
 
-            # Try to use refresh token as auth code
-            # Note: Fyers API v3 typically requires full re-auth
-            # But we try this first
-            self.session.set_token(self.config.refresh_token)
+            # Use stored auth code to generate new token
+            self.session.set_token(auth_code)
 
+            # Generate new access token
             response = self.session.generate_token()
 
             if self._validate_token_response(response):
-                # Update tokens
-                self.config.access_token = response['access_token']
-                self.config.refresh_token = response.get('refresh_token', self.config.refresh_token)
+                # Extract new tokens
+                access_token = response['access_token']
+                refresh_token = response.get('refresh_token', auth_code)
 
-                # Save with new timestamp
-                self._update_env_file(store_timestamp=True)
+                # Update config
+                self.config.access_token = access_token
+                self.config.refresh_token = refresh_token
 
-                logger.info("Token refreshed successfully")
+                # Save new token metadata
+                self._save_token_metadata(access_token, refresh_token, auth_code)
+
+                # Update .env file
+                self._update_env_file()
+
+                logger.info(" Token refreshed successfully")
                 return True
             else:
-                logger.error("Token refresh response invalid")
+                logger.error("✗ Token refresh response invalid")
                 return False
 
         except Exception as e:
-            logger.error(f"Token refresh failed: {e}")
-            logger.warning("⚠ Full re-authentication required")
+            logger.error(f"Token refresh failed: {e}", exc_info=True)
+            logger.warning(" Full re-authentication required")
+            logger.warning("  Run: python main.py auth")
             return False
 
     def validate_token_with_api(self) -> bool:
@@ -262,6 +331,7 @@ class FyersAuthenticationHelper:
             bool: True if token works with Fyers API
         """
         if not self.config.access_token:
+            logger.debug("No access token to validate")
             return False
 
         try:
@@ -276,14 +346,14 @@ class FyersAuthenticationHelper:
             response = fyers.get_profile()
 
             if response and response.get('s') == 'ok':
-                logger.info("Token validated with Fyers API")
+                logger.info(" Token validated with Fyers API")
                 return True
             else:
                 logger.warning("✗ Token validation failed with Fyers API")
                 return False
 
         except Exception as e:
-            logger.error(f"Error validating token: {e}")
+            logger.error(f"Error validating token with API: {e}")
             return False
 
     def update_pin(self, new_pin: str) -> bool:
@@ -296,26 +366,38 @@ class FyersAuthenticationHelper:
         Returns:
             bool: True if updated successfully
         """
-        if not new_pin or not new_pin.isdigit() or len(new_pin) < 4:
-            logger.error("Invalid PIN format")
+        if not new_pin or not new_pin.isdigit() or len(new_pin) < 4 or len(new_pin) > 6:
+            logger.error("Invalid PIN format (must be 4-6 digits)")
             return False
 
         self.config.pin = new_pin
-        return self._update_env_file(store_timestamp=False)
+        return self._update_env_file()
 
     def _extract_auth_code(self, redirect_url: str) -> Optional[str]:
         """Extract authorization code from redirect URL."""
         try:
+            # Handle different URL formats
+            if '?' not in redirect_url:
+                logger.error("✗ Invalid redirect URL format (no query parameters)")
+                return None
+
             parsed = urlparse(redirect_url)
             params = parse_qs(parsed.query)
 
+            # Try 'auth_code' parameter
             auth_code = params.get('auth_code', [None])[0]
 
+            if not auth_code:
+                # Try alternative parameter names
+                auth_code = params.get('code', [None])[0]
+
             if auth_code:
-                logger.info("Authorization code extracted")
+                logger.info(" Authorization code extracted successfully")
+                logger.debug(f"Auth code (first 20 chars): {auth_code[:20]}...")
                 return auth_code
             else:
-                logger.error("✗ No auth_code in URL")
+                logger.error("✗ No auth_code or code parameter in URL")
+                logger.error(f"  Available parameters: {list(params.keys())}")
                 return None
 
         except Exception as e:
@@ -325,26 +407,90 @@ class FyersAuthenticationHelper:
     def _validate_token_response(self, response: Dict) -> bool:
         """Validate token response from Fyers."""
         if not response:
-            logger.error("Empty response from Fyers")
+            logger.error("✗ Empty response from Fyers")
             return False
 
         if response.get('s') != 'ok':
             error_msg = response.get('message', 'Unknown error')
-            logger.error(f"Token generation failed: {error_msg}")
+            error_code = response.get('code', 'N/A')
+            logger.error(f"✗ Token generation failed: {error_msg} (Code: {error_code})")
             return False
 
         if 'access_token' not in response:
-            logger.error("No access token in response")
+            logger.error("✗ No access token in response")
+            logger.debug(f"Response keys: {list(response.keys())}")
             return False
 
+        logger.info(" Token response validation passed")
         return True
 
-    def _update_env_file(self, store_timestamp: bool = False) -> bool:
+    def _load_token_metadata(self) -> Dict:
         """
-        Update .env file with tokens and optionally timestamp.
+        Load token metadata from JSON file.
+
+        Returns:
+            Dict with token metadata or empty dict
+        """
+        metadata_file = Path(self.TOKEN_METADATA_FILE)
+
+        if not metadata_file.exists():
+            logger.debug("No token metadata file found")
+            return {}
+
+        try:
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+                logger.debug(" Token metadata loaded")
+                return metadata
+        except Exception as e:
+            logger.error(f"Error loading token metadata: {e}")
+            return {}
+
+    def _save_token_metadata(self, access_token: str, refresh_token: str, auth_code: str) -> bool:
+        """
+        Save token metadata to JSON file.
 
         Args:
-            store_timestamp: If True, store current time as token creation time
+            access_token: Access token
+            refresh_token: Refresh token
+            auth_code: Original auth code (for refresh)
+
+        Returns:
+            bool: True if saved successfully
+        """
+        try:
+            metadata = {
+                'created_at': datetime.now().isoformat(),
+                'access_token_preview': access_token[:20] + '...' if access_token else None,
+                'refresh_token_preview': refresh_token[:20] + '...' if refresh_token else None,
+                'auth_code': auth_code,  # Store for refresh
+                'client_id': self.config.client_id,
+                'expires_at': (datetime.now() + timedelta(hours=self.TOKEN_VALIDITY_HOURS)).isoformat()
+            }
+
+            metadata_file = Path(self.TOKEN_METADATA_FILE)
+
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+
+            # Update in-memory metadata
+            self.token_metadata = metadata
+
+            logger.info(" Token metadata saved")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving token metadata: {e}")
+            return False
+
+    def _update_env_file(self) -> bool:
+        """
+        Update .env file with tokens only (no timestamps).
+
+        Timestamps are stored in .fyers_tokens.json metadata file.
+
+        Returns:
+            bool: True if updated successfully
         """
         env_file = Path('.env')
 
@@ -354,20 +500,27 @@ class FyersAuthenticationHelper:
             if template.exists():
                 import shutil
                 shutil.copy(template, env_file)
+            else:
+                # Create minimal .env file
+                with open(env_file, 'w') as f:
+                    f.write(f"# Fyers API Configuration\n")
+                    f.write(f"FYERS_CLIENT_ID={self.config.client_id}\n")
+                    f.write(f"FYERS_SECRET_KEY={self.config.secret_key}\n")
+                    f.write(f"FYERS_REDIRECT_URI={self.config.redirect_uri}\n")
 
         try:
             # Read current .env
             with open(env_file, 'r') as f:
                 lines = f.readlines()
 
-            # Update relevant lines
-            updated_lines = []
-            found = {
-                'access': False,
-                'refresh': False,
-                'timestamp': False,
+            # Track what we've updated
+            updated = {
+                'access_token': False,
+                'refresh_token': False,
                 'pin': False
             }
+
+            new_lines = []
 
             for line in lines:
                 if line.startswith('FYERS_ACCESS_TOKEN='):
@@ -380,6 +533,7 @@ class FyersAuthenticationHelper:
                     new_lines.append(f'FYERS_PIN={self.config.pin}\n')
                     updated['pin'] = True
                 else:
+                    # Keep all other lines as-is (including FYERS_CLIENT_ID, etc.)
                     new_lines.append(line)
 
             # Add missing entries
@@ -392,9 +546,9 @@ class FyersAuthenticationHelper:
 
             # Write back
             with open(env_file, 'w') as f:
-                f.writelines(updated_lines)
+                f.writelines(new_lines)
 
-            logger.info(" .env file updated")
+            logger.info(" .env file updated with tokens")
             return True
 
         except Exception as e:
@@ -420,13 +574,20 @@ class FyersAuthenticationHelper:
                     else:
                         new_lines.append(line)
 
-            with open(env_file, 'w') as f:
-                f.writelines(new_lines)
+                with open(env_file, 'w') as f:
+                    f.writelines(new_lines)
 
+            # Clear metadata file
+            metadata_file = Path(self.TOKEN_METADATA_FILE)
+            if metadata_file.exists():
+                metadata_file.unlink()
+
+            # Clear config
             self.config.access_token = None
             self.config.refresh_token = None
+            self.token_metadata = {}
 
-            logger.info("Tokens cleared")
+            logger.info(" Tokens cleared from .env and metadata")
             return True
 
         except Exception as e:
@@ -434,25 +595,47 @@ class FyersAuthenticationHelper:
             return False
 
     def get_token_info(self) -> Dict:
-        """Get information about current tokens."""
-        token_created = self._get_token_timestamp()
-
+        """Get comprehensive information about current tokens."""
         info = {
             'has_access_token': bool(self.config.access_token),
             'has_refresh_token': bool(self.config.refresh_token),
-            'is_valid': self.is_token_valid(),
-            'token_created_at': token_created.isoformat() if token_created else None,
+            'has_metadata': bool(self.token_metadata),
+            'is_valid': False,
+            'created_at': None,
+            'expires_at': None,
             'token_age_hours': None,
-            'expires_in_hours': None
+            'expires_in_hours': None,
+            'should_refresh': False
         }
 
-        if token_created:
-            age = datetime.now() - token_created
-            info['token_age_hours'] = age.total_seconds() / 3600
+        if self.token_metadata:
+            created_at_str = self.token_metadata.get('created_at')
+            expires_at_str = self.token_metadata.get('expires_at')
 
-            expiry = token_created + timedelta(hours=self.TOKEN_VALIDITY_HOURS)
-            remaining = expiry - datetime.now()
-            info['expires_in_hours'] = remaining.total_seconds() / 3600
+            if created_at_str:
+                try:
+                    created_at = datetime.fromisoformat(created_at_str)
+                    info['created_at'] = created_at_str
+
+                    # Calculate age
+                    age = datetime.now() - created_at
+                    info['token_age_hours'] = age.total_seconds() / 3600
+
+                    # Calculate expiry
+                    expiry = created_at + timedelta(hours=self.TOKEN_VALIDITY_HOURS)
+                    info['expires_at'] = expiry.isoformat()
+
+                    remaining = expiry - datetime.now()
+                    info['expires_in_hours'] = remaining.total_seconds() / 3600
+
+                    # Check validity
+                    info['is_valid'] = remaining.total_seconds() > 0
+
+                    # Check if should refresh
+                    info['should_refresh'] = self.should_refresh_token()
+
+                except Exception as e:
+                    logger.error(f"Error calculating token info: {e}")
 
         return info
 
@@ -460,25 +643,46 @@ class FyersAuthenticationHelper:
         """Print formatted token information."""
         info = self.get_token_info()
 
-        print("\n" + "=" * 60)
+        print("\n" + "=" * 70)
         print("FYERS AUTHENTICATION STATUS")
-        print("=" * 60)
+        print("=" * 70)
 
-        status = "VALID" if info['is_valid'] else "✗ INVALID/EXPIRED"
+        # Status
+        if info['is_valid']:
+            status = " VALID"
+            if info['should_refresh']:
+                status += " (Refresh Recommended)"
+        else:
+            status = "✗ INVALID/EXPIRED"
+
         print(f"\nStatus: {status}")
-        print(f"Access Token: {'Present' if info['has_access_token'] else 'Missing'}")
-        print(f"Refresh Token: {'Present' if info['has_refresh_token'] else 'Missing'}")
+        print(f"Access Token: {' Present' if info['has_access_token'] else '✗ Missing'}")
+        print(f"Refresh Token: {' Present' if info['has_refresh_token'] else '✗ Missing'}")
+        print(f"Metadata: {' Available' if info['has_metadata'] else '✗ Missing'}")
 
-        if info['token_created_at']:
-            print(f"\nToken Created: {info['token_created_at']}")
+        # Timing information
+        if info['created_at']:
+            print(f"\nToken Created: {info['created_at']}")
             print(f"Token Age: {info['token_age_hours']:.1f} hours")
 
-            if info['expires_in_hours'] and info['expires_in_hours'] > 0:
-                print(f"Expires In: {info['expires_in_hours']:.1f} hours")
-            else:
-                print(f"Expired: {abs(info['expires_in_hours']):.1f} hours ago")
+            if info['expires_in_hours']:
+                if info['expires_in_hours'] > 0:
+                    print(f"Expires In: {info['expires_in_hours']:.1f} hours")
+                else:
+                    print(f"Expired: {abs(info['expires_in_hours']):.1f} hours ago")
 
-        print("\n" + "=" * 60)
+        # Recommendations
+        print("\nRecommendations:")
+        if not info['is_valid']:
+            print("  • Token expired - refresh required")
+            print("  • Run: python main.py auth (if refresh fails)")
+        elif info['should_refresh']:
+            print("  • Proactive refresh recommended")
+            print("  • Token will be auto-refreshed on next strategy run")
+        else:
+            print("  •  No action needed - token is valid")
+
+        print("\n" + "=" * 70)
 
 
 # Convenience functions
@@ -493,7 +697,11 @@ def authenticate_fyers(config: Optional[FyersConfig] = None) -> bool:
 
 
 def ensure_authenticated(config: Optional[FyersConfig] = None) -> bool:
-    """Ensure valid authentication with auto-refresh."""
+    """
+    Ensure valid authentication with AUTO-REFRESH.
+
+    This is the KEY function to use before any Fyers API operations.
+    """
     if config is None:
         from config.settings import config as app_config
         config = app_config.fyers
@@ -511,13 +719,13 @@ if __name__ == "__main__":
     auth_helper.print_token_info()
 
     if not auth_helper.is_token_valid():
-        print("\nAuthentication required...")
+        print("\n Authentication required...")
         success = auth_helper.authenticate()
 
         if success:
-            print("\nAuthentication successful!")
+            print("\n Authentication successful!")
             auth_helper.print_token_info()
         else:
-            print("\nAuthentication failed")
+            print("\n✗ Authentication failed")
     else:
-        print("\nAlready authenticated")
+        print("\n Already authenticated")
