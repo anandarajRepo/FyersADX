@@ -5,9 +5,12 @@ from .enhanced_auth_helper import (
     authenticate_fyers,
     ensure_authenticated
 )
+from .symbol_manager import SymbolManager, get_daily_symbols
 
 __all__ = [
     'FyersAuthenticationHelper',
     'authenticate_fyers',
-    'ensure_authenticated'
+    'ensure_authenticated',
+    'SymbolManager',
+    'get_daily_symbols'
 ]

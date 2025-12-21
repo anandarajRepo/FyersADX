@@ -29,11 +29,10 @@ from utils.enhanced_auth_helper import FyersAuthenticationHelper
 
 # Import symbol generator (must be in same directory)
 try:
-    from symbol_generator import ATMSymbolGenerator
-    SYMBOL_GENERATOR_AVAILABLE = True
+    from utils.symbol_manager import SymbolManager
+    SYMBOL_MANAGER_AVAILABLE = True
 except ImportError:
-    SYMBOL_GENERATOR_AVAILABLE = False
-    logging.warning("symbol_generator.py not found - auto symbol generation disabled")
+    SYMBOL_MANAGER_AVAILABLE = False
 
 console = Console()
 
@@ -167,14 +166,18 @@ def cli():
 @cli.command()
 @click.option('--symbols', '-s', multiple=True, help='Specific symbols to trade')
 @click.option('--paper', is_flag=True, help='Run in paper trading mode')
-def run(symbols, paper):
+@click.option('--auto-symbols', is_flag=True, default=True, help='Auto-generate ATM option symbols (default: True)')
+@click.option('--indices', multiple=True, default=['NIFTY', 'BANKNIFTY'], help='Indices for auto symbol generation')
+@click.option('--otm-strikes', type=int, default=0, help='Number of OTM strikes on each side (0=ATM only)')
+def run(symbols, paper, auto_symbols, indices, otm_strikes):
     """
     Run the live ADX trading strategy.
 
     Examples:
         python main.py run
         python main.py run --paper
-        python main.py run -s NSE:RELIANCE-EQ -s NSE:TCS-EQ
+        python main.py run --auto-symbols --indices NIFTY BANKNIFTY --otm-strikes 1
+        python main.py run -s NSE:RELIANCE-EQ -s NSE:TCS-EQ --no-auto-symbols
     """
     console.print("\nStarting FyersADX Trading Strategy\n")
 
@@ -230,44 +233,96 @@ def run(symbols, paper):
         config.trading.enable_paper_trading = True
         config.trading.enable_order_execution = False
 
-    # Get symbols to trade
+    # ═══════════════════════════════════════════════════════
+    # SYMBOL SELECTION LOGIC (MINIMAL VERSION)
+    # ═══════════════════════════════════════════════════════
+
+    # Get default values for parameters (in case function signature wasn't updated)
+    auto_symbols_enabled = locals().get('auto_symbols', True)  # Default to True
+    target_indices = locals().get('indices', None) or ['NIFTY', 'BANKNIFTY']  # Default indices
+    otm_strikes_count = locals().get('otm_strikes', 0)  # Default to ATM only
+
+    # Initialize trading_symbols
+    trading_symbols = None
+
+    # Priority 1: Use command-line symbols if provided
     if symbols:
+        console.print(f"Using {len(symbols)} symbols from command line")
         trading_symbols = list(symbols)
         valid, invalid = validate_symbols(trading_symbols)
         if invalid:
-            console.print(f"Warning: Invalid symbols will be skipped: {invalid}")
+            console.print(f"Invalid symbols skipped: {invalid}")
         trading_symbols = valid
-    else:
-        trading_symbols = get_active_symbols()
 
-    # Symbol generation/loading
-    symbol_manager = SymbolManager()
+    # Priority 2: Try auto-generation if enabled and available
+    elif auto_symbols_enabled:
+        if SYMBOL_MANAGER_AVAILABLE:
+            console.print("\nAuto-generating ATM option symbols...")
+            try:
+                symbol_manager = SymbolManager()
 
-    if use_auto_symbols:
-        if symbol_manager.initialize_generator(CLIENT_ID, access_token):
-            print("\n Generating ATM symbols automatically...")
-            SYMBOLS = symbol_manager.get_or_generate_symbols(
-                indices=['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'],
-                num_strikes_otm=0,  # 0 - ATM only, 1 - ATM ±1, 2 - ATM ±2 - No. of options generation
-                force_regenerate=False
-            )
+                if symbol_manager.initialize_generator(
+                        config.fyers.client_id,
+                        config.fyers.access_token
+                ):
+                    console.print(f"   Indices: {', '.join(target_indices)}")
+                    console.print(f"   OTM Strikes: {otm_strikes_count}")
+
+                    trading_symbols = symbol_manager.get_or_generate_symbols(
+                        indices=list(target_indices),
+                        num_strikes_otm=otm_strikes_count,
+                        force_regenerate=False
+                    )
+
+                    if trading_symbols:
+                        console.print(f"Generated {len(trading_symbols)} symbols")
+                    else:
+                        console.print("Symbol generation returned empty list")
+                        trading_symbols = None
+                else:
+                    console.print("Symbol generator initialization failed")
+
+            except Exception as e:
+                console.print(f"Symbol generation error: {e}")
+                logging.error(f"Symbol generation failed: {e}", exc_info=True)
+                trading_symbols = None
         else:
-            print("\n Symbol generator not available, using manual symbols")
-            SYMBOLS = []
-    else:
-        SYMBOLS = symbol_manager.load_symbols_from_file()
-        if not SYMBOLS:
-            print("\n️ No saved symbols found")
-            if symbol_manager.initialize_generator(CLIENT_ID, access_token):
-                print(" Generating new symbols...")
-                SYMBOLS = symbol_manager.generate_daily_symbols()
-            else:
-                SYMBOLS = []
+            console.print("️SymbolManager not available (check imports)")
 
-    console.print(f"Trading {len(trading_symbols)} symbols")
-    console.print(f"Paper Trading: {config.trading.enable_paper_trading}")
-    console.print(f"Square-off Time: {config.strategy.square_off_time} IST")
-    console.print(f"Max Positions: {config.strategy.max_positions}\n")
+    # Priority 3: Fall back to manual symbols
+    if not trading_symbols:
+        console.print("Loading manual symbols from config/symbols.py")
+        try:
+            trading_symbols = get_active_symbols()
+            if trading_symbols:
+                console.print(f" Loaded {len(trading_symbols)} manual symbols")
+        except Exception as e:
+            console.print(f" Error loading manual symbols: {e}")
+            trading_symbols = []
+
+    # Final validation
+    if not trading_symbols:
+        console.print("\n" + "=" * 70)
+        console.print(" ERROR: No symbols available for trading!")
+        console.print("=" * 70)
+        console.print("\nPossible solutions:")
+        console.print("1. Add symbols to config/symbols.py (OPTIONS_SYMBOLS list)")
+        console.print("2. Use command line: python main.py run -s NSE:NIFTY25DEC26000CE")
+        console.print("3. Check SymbolManager is properly installed")
+        console.print("4. Verify Fyers API credentials are correct")
+        console.print("=" * 70 + "\n")
+        return
+
+    # ═══════════════════════════════════════════════════════
+    # DISPLAY CONFIGURATION
+    # ═══════════════════════════════════════════════════════
+
+    console.print(f"\n Trading Configuration:")
+    console.print(f"   Symbols: {len(trading_symbols)}")
+    console.print(f"   Paper Trading: {'✓ Enabled' if config.trading.enable_paper_trading else '✗ Disabled'}")
+    console.print(f"   Order Execution: {'✓ Enabled' if config.trading.enable_order_execution else '✗ Disabled'}")
+    console.print(f"   Square-off Time: {config.strategy.square_off_time} IST")
+    console.print(f"   Max Positions: {config.strategy.max_positions}\n")
 
     # Initialize and run strategy
     try:
@@ -282,9 +337,9 @@ def run(symbols, paper):
         asyncio.run(strategy.run_strategy_cycle())
 
     except KeyboardInterrupt:
-        console.print("\n[yellow]Strategy stopped by user[/yellow]")
+        console.print("\n[yellow] Strategy stopped by user[/yellow]")
     except Exception as e:
-        console.print(f"\n[bold red]Error: {e}[/bold red]")
+        console.print(f"\n[bold red] Error: {e}[/bold red]")
         logging.error(f"Strategy error: {e}", exc_info=True)
         sys.exit(1)
 
