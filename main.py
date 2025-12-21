@@ -27,6 +27,14 @@ from services.market_timing_service import MarketTimingService
 from utils.enhanced_auth_helper import FyersAuthenticationHelper
 # from backtesting.adx_backtest import ADXBacktester  # Import when implemented
 
+# Import symbol generator (must be in same directory)
+try:
+    from symbol_generator import ATMSymbolGenerator
+    SYMBOL_GENERATOR_AVAILABLE = True
+except ImportError:
+    SYMBOL_GENERATOR_AVAILABLE = False
+    logging.warning("symbol_generator.py not found - auto symbol generation disabled")
+
 console = Console()
 
 
@@ -119,6 +127,30 @@ def _update_env_credentials(client_id: str, secret_key: str, redirect_uri: str) 
         console.print(f"Error saving credentials: {e}")
         return False
 
+        # Symbol generation/loading
+        symbol_manager = SymbolManager()
+
+        if use_auto_symbols:
+            if symbol_manager.initialize_generator(CLIENT_ID, access_token):
+                print("\n Generating ATM symbols automatically...")
+                SYMBOLS = symbol_manager.get_or_generate_symbols(
+                    indices=['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'],
+                    num_strikes_otm=0, # 0 - ATM only, 1 - ATM ±1, 2 - ATM ±2 - No. of options generation
+                    force_regenerate=False
+                )
+            else:
+                print("\n Symbol generator not available, using manual symbols")
+                SYMBOLS = []
+        else:
+            SYMBOLS = symbol_manager.load_symbols_from_file()
+            if not SYMBOLS:
+                print("\n️ No saved symbols found")
+                if symbol_manager.initialize_generator(CLIENT_ID, access_token):
+                    print(" Generating new symbols...")
+                    SYMBOLS = symbol_manager.generate_daily_symbols()
+                else:
+                    SYMBOLS = []
+
 
 @click.group()
 @click.version_option(version='1.0.0')
@@ -207,6 +239,30 @@ def run(symbols, paper):
         trading_symbols = valid
     else:
         trading_symbols = get_active_symbols()
+
+    # Symbol generation/loading
+    symbol_manager = SymbolManager()
+
+    if use_auto_symbols:
+        if symbol_manager.initialize_generator(CLIENT_ID, access_token):
+            print("\n Generating ATM symbols automatically...")
+            SYMBOLS = symbol_manager.get_or_generate_symbols(
+                indices=['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY'],
+                num_strikes_otm=0,  # 0 - ATM only, 1 - ATM ±1, 2 - ATM ±2 - No. of options generation
+                force_regenerate=False
+            )
+        else:
+            print("\n Symbol generator not available, using manual symbols")
+            SYMBOLS = []
+    else:
+        SYMBOLS = symbol_manager.load_symbols_from_file()
+        if not SYMBOLS:
+            print("\n️ No saved symbols found")
+            if symbol_manager.initialize_generator(CLIENT_ID, access_token):
+                print(" Generating new symbols...")
+                SYMBOLS = symbol_manager.generate_daily_symbols()
+            else:
+                SYMBOLS = []
 
     console.print(f"Trading {len(trading_symbols)} symbols")
     console.print(f"Paper Trading: {config.trading.enable_paper_trading}")
