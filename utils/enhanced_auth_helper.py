@@ -131,11 +131,11 @@ class FyersAuthenticationHelper:
             self.config.access_token = response['access_token']
             self.config.refresh_token = response.get('refresh_token', auth_code)
 
-            # Save to .env file with timestamp
-            self._update_env_file(store_timestamp=True)
+            # Save to .env file (tokens only, no timestamp)
+            self._update_env_file()
 
-            logger.info("Authentication successful!")
             logger.info("Tokens saved to .env file")
+            logger.info("Metadata saved to .fyers_tokens.json")
 
             return True
 
@@ -339,29 +339,6 @@ class FyersAuthenticationHelper:
 
         return True
 
-    def _get_token_timestamp(self) -> Optional[datetime]:
-        """
-        Get token creation timestamp from .env file.
-
-        Returns:
-            datetime or None if not found
-        """
-        env_file = Path('.env')
-        if not env_file.exists():
-            return None
-
-        try:
-            with open(env_file, 'r') as f:
-                for line in f:
-                    if line.startswith('FYERS_TOKEN_CREATED_AT='):
-                        timestamp_str = line.split('=', 1)[1].strip()
-                        if timestamp_str:
-                            return datetime.fromisoformat(timestamp_str)
-        except Exception as e:
-            logger.error(f"Error reading token timestamp: {e}")
-
-        return None
-
     def _update_env_file(self, store_timestamp: bool = False) -> bool:
         """
         Update .env file with tokens and optionally timestamp.
@@ -394,32 +371,24 @@ class FyersAuthenticationHelper:
 
             for line in lines:
                 if line.startswith('FYERS_ACCESS_TOKEN='):
-                    updated_lines.append(f'FYERS_ACCESS_TOKEN={self.config.access_token}\n')
-                    found['access'] = True
+                    new_lines.append(f'FYERS_ACCESS_TOKEN={self.config.access_token}\n')
+                    updated['access_token'] = True
                 elif line.startswith('FYERS_REFRESH_TOKEN='):
-                    updated_lines.append(f'FYERS_REFRESH_TOKEN={self.config.refresh_token}\n')
-                    found['refresh'] = True
-                elif line.startswith('FYERS_TOKEN_CREATED_AT='):
-                    if store_timestamp:
-                        timestamp = datetime.now().isoformat()
-                        updated_lines.append(f'FYERS_TOKEN_CREATED_AT={timestamp}\n')
-                    else:
-                        updated_lines.append(line)
-                    found['timestamp'] = True
+                    new_lines.append(f'FYERS_REFRESH_TOKEN={self.config.refresh_token}\n')
+                    updated['refresh_token'] = True
                 elif line.startswith('FYERS_PIN=') and self.config.pin:
-                    updated_lines.append(f'FYERS_PIN={self.config.pin}\n')
-                    found['pin'] = True
+                    new_lines.append(f'FYERS_PIN={self.config.pin}\n')
+                    updated['pin'] = True
                 else:
-                    updated_lines.append(line)
+                    new_lines.append(line)
 
             # Add missing entries
-            if not found['access']:
-                updated_lines.append(f'FYERS_ACCESS_TOKEN={self.config.access_token}\n')
-            if not found['refresh']:
-                updated_lines.append(f'FYERS_REFRESH_TOKEN={self.config.refresh_token}\n')
-            if not found['timestamp'] and store_timestamp:
-                timestamp = datetime.now().isoformat()
-                updated_lines.append(f'FYERS_TOKEN_CREATED_AT={timestamp}\n')
+            if not updated['access_token']:
+                new_lines.append(f'FYERS_ACCESS_TOKEN={self.config.access_token}\n')
+            if not updated['refresh_token']:
+                new_lines.append(f'FYERS_REFRESH_TOKEN={self.config.refresh_token}\n')
+            if not updated['pin'] and self.config.pin:
+                new_lines.append(f'FYERS_PIN={self.config.pin}\n')
 
             # Write back
             with open(env_file, 'w') as f:
@@ -433,30 +402,26 @@ class FyersAuthenticationHelper:
             return False
 
     def clear_tokens(self) -> bool:
-        """Clear tokens from .env file."""
+        """Clear tokens from .env file and metadata."""
         try:
+            # Clear .env file
             env_file = Path('.env')
 
-            if not env_file.exists():
-                logger.info("No .env file to clear")
-                return True
+            if env_file.exists():
+                with open(env_file, 'r') as f:
+                    lines = f.readlines()
 
-            with open(env_file, 'r') as f:
-                lines = f.readlines()
-
-            updated_lines = []
-            for line in lines:
-                if line.startswith('FYERS_ACCESS_TOKEN='):
-                    updated_lines.append('FYERS_ACCESS_TOKEN=\n')
-                elif line.startswith('FYERS_REFRESH_TOKEN='):
-                    updated_lines.append('FYERS_REFRESH_TOKEN=\n')
-                elif line.startswith('FYERS_TOKEN_CREATED_AT='):
-                    updated_lines.append('FYERS_TOKEN_CREATED_AT=\n')
-                else:
-                    updated_lines.append(line)
+                new_lines = []
+                for line in lines:
+                    if line.startswith('FYERS_ACCESS_TOKEN='):
+                        new_lines.append('FYERS_ACCESS_TOKEN=\n')
+                    elif line.startswith('FYERS_REFRESH_TOKEN='):
+                        new_lines.append('FYERS_REFRESH_TOKEN=\n')
+                    else:
+                        new_lines.append(line)
 
             with open(env_file, 'w') as f:
-                f.writelines(updated_lines)
+                f.writelines(new_lines)
 
             self.config.access_token = None
             self.config.refresh_token = None
