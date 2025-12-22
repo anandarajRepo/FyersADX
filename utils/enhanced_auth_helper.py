@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple
 from urllib.parse import parse_qs, urlparse
 import json
+import requests
 
 try:
     from fyers_apiv3 import fyersModel
@@ -45,6 +46,19 @@ class FyersAuthenticationHelper:
         self.config = config
         self.session = None
         self.auto_open_browser = False
+
+        self.client_id = os.environ.get('FYERS_CLIENT_ID')
+        self.secret_key = os.environ.get('FYERS_SECRET_KEY')
+        self.redirect_uri = os.environ.get('FYERS_REDIRECT_URI', "https://trade.fyers.in/api-login/redirect-to-app")
+        self.refresh_token = os.environ.get('FYERS_REFRESH_TOKEN')
+        self.access_token = os.environ.get('FYERS_ACCESS_TOKEN')
+        self.pin = os.environ.get('FYERS_PIN')
+
+        # API endpoints
+        self.auth_url = "https://api-t1.fyers.in/api/v3/generate-authcode"
+        self.token_url = "https://api-t1.fyers.in/api/v3/validate-authcode"
+        self.refresh_url = "https://api-t1.fyers.in/api/v3/validate-refresh-token"
+        self.profile_url = "https://api-t1.fyers.in/api/v3/profile"
 
         logger.info("Initialized FyersAuthenticationHelper")
 
@@ -144,24 +158,27 @@ class FyersAuthenticationHelper:
             logger.error(f"Authentication failed: {e}", exc_info=True)
             return False
 
-    def is_token_valid(self) -> bool:
-        """
-        Check if access token exists.
-        
-        Note: Does not check expiry - token is used until it fails.
-        This matches FyersORB behavior.
+    def is_token_valid(self, access_token: str) -> bool:
+        """Check if access token is still valid"""
+        if not access_token or not self.client_id:
+            return False
 
-        Returns:
-            bool: True if access token exists
-        """
-        has_token = bool(self.config.access_token and len(self.config.access_token) > 0)
-        
-        if has_token:
-            logger.debug("Access token present")
-        else:
-            logger.debug("No access token available")
-            
-        return has_token
+        try:
+            headers = {'Authorization': f"{self.client_id}:{access_token}"}
+            response = requests.get(self.profile_url, headers=headers, timeout=10)
+
+            if response.status_code == 200:
+                result = response.json()
+                is_valid = result.get('s') == 'ok'
+                logger.debug(f"Token validation result: {'valid' if is_valid else 'invalid'}")
+                return is_valid
+            else:
+                logger.debug(f"Token validation failed with status: {response.status_code}")
+                return False
+
+        except Exception as e:
+            logger.debug(f"Token validation error: {e}")
+            return False
 
     def validate_token_with_api(self) -> bool:
         """
@@ -398,15 +415,65 @@ class FyersAuthenticationHelper:
         print("\n" + "=" * 70)
 
 
-# Convenience functions
-def authenticate_fyers(config: Optional[FyersConfig] = None) -> bool:
-    """Quick authentication function."""
-    if config is None:
-        from config.settings import config as app_config
-        config = app_config.fyers
+    def get_valid_access_token(self) -> Optional[str]:
+        """Get a valid access token, using refresh token if available"""
+        try:
+            # First, check if current access token is still valid
+            if self.access_token and self.is_token_valid(self.access_token):
+                logger.info("Current access token is still valid")
+                return self.access_token
 
-    helper = FyersAuthenticationHelper(config)
-    return helper.authenticate()
+            logger.info("Access token is invalid or expired")
+
+            # Try to use refresh token if available
+            if self.refresh_token:
+                logger.info("Attempting to refresh access token...")
+                new_access_token, new_refresh_token = self.generate_access_token_with_refresh(self.refresh_token)
+
+                if new_access_token:
+                    logger.info("Successfully refreshed access token")
+
+                    # Save new tokens
+                    self.save_to_env('FYERS_ACCESS_TOKEN', new_access_token)
+                    self.access_token = new_access_token
+
+                    if new_refresh_token:
+                        self.save_to_env('FYERS_REFRESH_TOKEN', new_refresh_token)
+                        self.refresh_token = new_refresh_token
+
+                    return new_access_token
+                else:
+                    logger.warning("Failed to refresh access token")
+
+            # If refresh failed or no refresh token, require full authentication
+            logger.info("Full re-authentication required")
+            return self.setup_full_authentication()
+
+        except Exception as e:
+            logger.error(f"Error getting valid access token: {e}")
+            return None
+
+# Convenience functions
+def authenticate_fyers(config_dict: dict) -> bool:
+    """Handle Fyers authentication with refresh token and PIN support"""
+    try:
+        auth_manager = FyersAuthenticationHelper()
+
+        # Get valid access token (will auto-refresh if needed)
+        access_token = auth_manager.get_valid_access_token()
+
+        if access_token:
+            # Update config with the valid token
+            config_dict['fyers_config'].access_token = access_token
+            logger.info("Fyers authentication successful")
+            return True
+        else:
+            logger.error("Fyers authentication failed")
+            return False
+
+    except Exception as e:
+        logger.error(f"Authentication error: {e}")
+        return False
 
 
 def ensure_authenticated(config: Optional[FyersConfig] = None) -> bool:

@@ -8,6 +8,7 @@ backtesting, and system management.
 import asyncio
 import logging
 import sys
+import os
 from pathlib import Path
 from datetime import datetime
 
@@ -20,11 +21,12 @@ from rich import box
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config.settings import config
+from config.settings import config, FyersConfig
 from config.symbols import get_active_symbols, get_symbol_name, print_summary, validate_symbols, LARGE_CAP_SYMBOLS, MID_CAP_SYMBOLS, SMALL_CAP_SYMBOLS, OPTIONS_SYMBOLS
 from strategy.adx_strategy import ADXStrategy
 from services.market_timing_service import MarketTimingService
 from utils.enhanced_auth_helper import FyersAuthenticationHelper
+from utils.enhanced_auth_helper import authenticate_fyers
 # from backtesting.adx_backtest import ADXBacktester  # Import when implemented
 
 # Import symbol generator (must be in same directory)
@@ -35,6 +37,7 @@ except ImportError:
     SYMBOL_MANAGER_AVAILABLE = False
 
 console = Console()
+
 
 
 def setup_logging():
@@ -56,6 +59,29 @@ def setup_logging():
 
     logger = logging.getLogger(__name__)
     logger.info("Logging initialized")
+
+
+# Setup logging
+setup_logging()
+logger = logging.getLogger(__name__)
+
+
+def load_configuration():
+    """Load all configuration from environment variables"""
+    try:
+        # Fyers configuration
+        fyers_config = FyersConfig(
+            client_id=os.environ.get('FYERS_CLIENT_ID'),
+            secret_key=os.environ.get('FYERS_SECRET_KEY'),
+            access_token=os.environ.get('FYERS_ACCESS_TOKEN'),
+            refresh_token=os.environ.get('FYERS_REFRESH_TOKEN')
+        )
+
+        return fyers_config
+
+    except Exception as e:
+        logger.error(f"Error loading configuration: {e}")
+        raise
 
 
 def _update_env_credentials(client_id: str, secret_key: str, redirect_uri: str) -> bool:
@@ -200,6 +226,15 @@ def run(symbols, paper, auto_symbols, indices, otm_strikes):
 
     # Get and display current token status
     token_info = auth_helper.get_token_info()
+
+    # Load configuration
+    fyers_config = load_configuration()
+
+    # Enhanced authentication with auto-refresh
+    config_dict = {'fyers_config': fyers_config}
+    if not authenticate_fyers(config_dict):
+        console.print("Authentication failed. Please run 'python main.py auth' to setup authentication")
+        return
 
     if token_info['is_valid']:
         console.print("Token is valid")
