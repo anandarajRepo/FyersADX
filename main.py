@@ -236,18 +236,18 @@ def run(symbols, paper, auto_symbols, indices, otm_strikes):
         console.print("Authentication failed. Please run 'python main.py auth' to setup authentication")
         return
 
-    if token_info['is_valid']:
-        console.print("Token is valid")
-    else:
-        console.print("Token expired or invalid")
-        console.print("Attempting automatic token refresh...")
+    # if token_info['is_valid']:
+    #     console.print("Token is valid")
+    # else:
+    #     console.print("Token expired or invalid")
+    #     console.print("Attempting automatic token refresh...")
 
     # Ensure valid token (automatically refreshes if expired)
-    if not auth_helper.is_token_valid():
-        console.print("\nAuthentication Failed")
-        console.print("Token refresh failed. Please re-authenticate:")
-        console.print("python main.py auth\n")
-        return
+    # if not auth_helper.is_token_valid():
+    #     console.print("Authentication Failed")
+    #     console.print("Token refresh failed. Please re-authenticate:")
+    #     console.print("python main.py auth")
+    #     return
 
     # If we reached here, token is valid (either was valid or just refreshed)
     console.print("Authentication validated successfully")

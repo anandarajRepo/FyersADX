@@ -62,7 +62,7 @@ class SymbolManager:
 
             logger.info("Initializing ATMSymbolGenerator...")
             self.generator = ATMSymbolGenerator(client_id, access_token)
-            logger.info("✓ ATMSymbolGenerator initialized successfully")
+            logger.info("ATMSymbolGenerator initialized successfully")
             return True
 
         except Exception as e:
@@ -141,7 +141,7 @@ class SymbolManager:
             )
 
             if symbols:
-                logger.info(f"✓ Generated {len(symbols)} symbols")
+                logger.info(f" Generated {len(symbols)} symbols")
 
                 # Log sample symbols
                 logger.info("\nSample symbols:")
@@ -197,7 +197,7 @@ class SymbolManager:
                 logger.info(f"Cache is stale (from {cached_date}), regeneration needed")
                 return []
 
-            logger.info(f"✓ Loaded {len(symbols)} symbols from cache")
+            logger.info(f" Loaded {len(symbols)} symbols from cache")
 
             # Update internal cache
             self.cached_symbols = symbols
