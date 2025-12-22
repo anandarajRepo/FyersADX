@@ -7,11 +7,11 @@ Implements automatic token refresh matching FyersORB implementation.
 import os
 import logging
 from pathlib import Path
-from datetime import datetime, timedelta
 from typing import Optional, Dict, Tuple
 from urllib.parse import parse_qs, urlparse
-import json
 import requests
+import hashlib
+import getpass
 
 try:
     from fyers_apiv3 import fyersModel
@@ -415,6 +415,194 @@ class FyersAuthenticationHelper:
         print("\n" + "=" * 70)
 
 
+    def _secure_input(self, prompt: str, max_attempts: int = 3) -> str:
+        """Get secure input with fallback to regular input"""
+        for attempt in range(max_attempts):
+            try:
+                # Try getpass first (more secure)
+                value = getpass.getpass(prompt).strip()
+                if value:
+                    return value
+                else:
+                    print("Input cannot be empty. Please try again.")
+
+            except (EOFError, KeyboardInterrupt):
+                print("\nInput cancelled by user")
+                raise
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    print(f"Secure input failed ({e}), trying regular input...")
+                    try:
+                        value = input(prompt.replace(":", " (visible): ")).strip()
+                        if value:
+                            return value
+                        else:
+                            print("Input cannot be empty. Please try again.")
+                    except (EOFError, KeyboardInterrupt):
+                        print("\nInput cancelled by user")
+                        raise
+                else:
+                    print(f"All input methods failed: {e}")
+                    raise ValueError("Could not get secure input")
+
+        raise ValueError("Maximum attempts exceeded")
+
+
+    def save_to_env(self, key: str, value: str) -> bool:
+        """Save or update environment variable in .env file"""
+        try:
+            env_file = '.env'
+
+            # Read existing .env file
+            env_vars = {}
+            if os.path.exists(env_file):
+                with open(env_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and '=' in line and not line.startswith('#'):
+                            k, v = line.split('=', 1)
+                            env_vars[k] = v
+
+            # Update the specific key
+            env_vars[key] = value
+
+            # Write back to .env file
+            with open(env_file, 'w', encoding='utf-8') as f:
+                for k, v in env_vars.items():
+                    f.write(f"{k}={v}\n")
+
+            # Update current environment
+            os.environ[key] = value
+
+            logger.debug(f"Successfully saved {key} to .env file")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving {key} to .env file: {e}")
+            return False
+
+
+    def get_or_request_pin(self) -> str:
+        """Get PIN from environment or request from user with better input handling"""
+        if self.pin and len(self.pin) >= 4:
+            logger.debug("Using PIN from environment")
+            return self.pin
+
+        print("\n" + "=" * 60)
+        print("TRADING PIN REQUIRED")
+        print("=" * 60)
+        print("Your Fyers trading PIN is required for secure authentication.")
+        print("This PIN will be saved securely in your .env file for future use.")
+        print("The PIN is needed for automatic token refresh functionality.")
+
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            print(f"\nAttempt {attempt + 1}/{max_attempts}")
+
+            try:
+                pin = self._secure_input("Enter your Fyers trading PIN: ")
+
+                # Basic validation
+                if not pin.isdigit():
+                    print(" PIN must contain only numbers")
+                    continue
+
+                if len(pin) < 4:
+                    print(" PIN must be at least 4 digits")
+                    continue
+
+                if len(pin) > 10:
+                    print(" PIN seems too long (max 10 digits)")
+                    continue
+
+                # Confirm PIN
+                confirm_pin = self._secure_input("Confirm your trading PIN: ")
+
+                if pin != confirm_pin:
+                    print(" PINs do not match! Please try again.")
+                    continue
+
+                # Save PIN to environment for future use
+                if self.save_to_env('FYERS_PIN', pin):
+                    self.pin = pin
+                    print(" PIN saved successfully to .env file")
+                    return pin
+                else:
+                    print("️  PIN validation successful but couldn't save to .env file")
+                    return pin
+
+            except (EOFError, KeyboardInterrupt):
+                print("\n PIN entry cancelled by user")
+                raise ValueError("PIN entry cancelled")
+            except Exception as e:
+                print(f" Error getting PIN: {e}")
+                if attempt == max_attempts - 1:
+                    raise
+
+        raise ValueError("PIN is required for authentication - max attempts exceeded")
+
+    def get_app_id_hash(self) -> str:
+        """Generate app_id_hash for API calls"""
+        app_id = f"{self.client_id}:{self.secret_key}"
+        return hashlib.sha256(app_id.encode()).hexdigest()
+
+    def generate_access_token_with_refresh(self, refresh_token: str) -> Tuple[Optional[str], Optional[str]]:
+        """Generate new access token using refresh token with PIN verification"""
+        try:
+            logger.info("Refreshing access token using refresh token...")
+
+            # Get PIN (from env or user input)
+            pin = self.get_or_request_pin()
+
+            headers = {"Content-Type": "application/json"}
+
+            data = {
+                "grant_type": "refresh_token",
+                "appIdHash": self.get_app_id_hash(),
+                "refresh_token": refresh_token,
+                "pin": pin
+            }
+
+            response = requests.post(self.refresh_url, headers=headers, json=data, timeout=30)
+            response_data = response.json()
+
+            if response.status_code == 200 and response_data.get('s') == 'ok':
+                new_access_token = response_data.get('access_token')
+                new_refresh_token = response_data.get('refresh_token')
+
+                logger.info("Successfully refreshed access token")
+                return new_access_token, new_refresh_token
+            else:
+                error_msg = response_data.get('message', 'Unknown error')
+                error_code = response_data.get('code', 'Unknown')
+
+                # Handle specific PIN-related errors
+                if 'pin' in error_msg.lower() or 'invalid pin' in error_msg.lower():
+                    logger.error(f"PIN verification failed: {error_msg}")
+                    print(f"\n PIN verification failed: {error_msg}")
+                    print("The saved PIN might be incorrect.")
+
+                    # Clear the saved PIN and retry once
+                    self.pin = None
+                    if 'FYERS_PIN' in os.environ:
+                        del os.environ['FYERS_PIN']
+
+                    retry = input("Would you like to retry with a different PIN? (y/n): ").strip().lower()
+                    if retry == 'y':
+                        logger.info("Retrying token refresh with new PIN...")
+                        return self.generate_access_token_with_refresh(refresh_token)
+                else:
+                    logger.error(f"Token refresh failed: {error_msg} (Code: {error_code})")
+
+                return None, None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error while refreshing token: {e}")
+            return None, None
+        except Exception as e:
+            logger.error(f"Unexpected error while refreshing token: {e}")
+            return None, None
+
     def get_valid_access_token(self) -> Optional[str]:
         """Get a valid access token, using refresh token if available"""
         try:
@@ -457,7 +645,8 @@ class FyersAuthenticationHelper:
 def authenticate_fyers(config_dict: dict) -> bool:
     """Handle Fyers authentication with refresh token and PIN support"""
     try:
-        auth_manager = FyersAuthenticationHelper()
+        # Fix: Pass the fyers_config from the config_dict
+        auth_manager = FyersAuthenticationHelper(config_dict['fyers_config'])
 
         # Get valid access token (will auto-refresh if needed)
         access_token = auth_manager.get_valid_access_token()
