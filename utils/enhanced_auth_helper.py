@@ -603,6 +603,165 @@ class FyersAuthenticationHelper:
             logger.error(f"Unexpected error while refreshing token: {e}")
             return None, None
 
+
+    def get_tokens_from_auth_code(self, auth_code: str) -> Tuple[Optional[str], Optional[str]]:
+        """Get both access and refresh tokens from auth code"""
+        try:
+            logger.info("Exchanging auth code for tokens...")
+
+            headers = {"Content-Type": "application/json"}
+
+            data = {
+                "grant_type": "authorization_code",
+                "appIdHash": self.get_app_id_hash(),
+                "code": auth_code
+            }
+
+            response = requests.post(self.token_url, headers=headers, json=data, timeout=30)
+            response_data = response.json()
+
+            if response.status_code == 200 and response_data.get('s') == 'ok':
+                access_token = response_data.get('access_token')
+                refresh_token = response_data.get('refresh_token')
+
+                logger.info("Successfully obtained tokens from auth code")
+                return access_token, refresh_token
+            else:
+                error_msg = response_data.get('message', 'Unknown error')
+                error_code = response_data.get('code', 'Unknown')
+                logger.error(f"Token exchange failed: {error_msg} (Code: {error_code})")
+                return None, None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error during token exchange: {e}")
+            return None, None
+        except Exception as e:
+            logger.error(f"Unexpected error during token exchange: {e}")
+            return None, None
+
+
+    def generate_auth_url(self) -> str:
+        """Generate authorization URL for Fyers login"""
+        try:
+            params = {
+                'client_id': self.client_id,
+                'redirect_uri': self.redirect_uri,
+                'response_type': 'code',
+                'state': 'sample_state'
+            }
+
+            url = f"{self.auth_url}?" + "&".join([f"{k}={v}" for k, v in params.items()])
+            logger.debug("Generated auth URL successfully")
+            return url
+
+        except Exception as e:
+            logger.error(f"Error generating auth URL: {e}")
+            return None
+
+
+    def setup_full_authentication(self) -> Optional[str]:
+        """Complete authentication flow to get new tokens"""
+        try:
+            print("\n" + "=" * 70)
+            print("FYERS API FULL AUTHENTICATION SETUP")
+            print("=" * 70)
+
+            if not all([self.client_id, self.secret_key]):
+                print(" Missing CLIENT_ID or SECRET_KEY in environment variables")
+                return None
+
+            # PIN setup reminder
+            if not self.pin:
+                print("\nTrading PIN Setup:")
+                print("Your trading PIN will be needed for future token refreshes.")
+                print("We'll ask for it during the authentication process.")
+
+            # Generate auth URL
+            auth_url = self.generate_auth_url()
+            if not auth_url:
+                print(" Failed to generate authentication URL")
+                return None
+
+            print(f"\n AUTHENTICATION STEPS:")
+            print(f"1. Open this URL in your web browser:")
+            print(f"   {auth_url}")
+            print(f"\n2. Log in to your Fyers account")
+            print(f"3. Complete the authorization process")
+            print(f"4. Copy the authorization code from the redirect URL")
+            print(f"\n The redirect URL will look like:")
+            print(f"   {self.redirect_uri}?code=YOUR_AUTH_CODE&state=sample_state")
+
+            # Get auth code from user
+            print(f"\n" + "=" * 50)
+            auth_code = input(" Enter the authorization code: ").strip()
+
+            if not auth_code:
+                print(" No authorization code provided")
+                return None
+
+            # Get both access and refresh tokens
+            print(" Exchanging authorization code for tokens...")
+            access_token, refresh_token = self.get_tokens_from_auth_code(auth_code)
+
+            if not access_token:
+                print(" Failed to obtain access token")
+                return None
+
+            print(" Tokens obtained successfully!")
+
+            # Set up PIN for future token refreshes
+            try:
+                print("\n Setting up PIN for automatic token refresh...")
+                pin = self.get_or_request_pin()
+                if pin:
+                    print(" PIN configured for automatic token refresh")
+            except Exception as e:
+                print(f"  PIN setup skipped: {e}")
+                print("You can set it up later with: python main.py update-pin")
+
+            # Save all tokens to .env
+            print(f"\n Saving authentication data...")
+
+            saved_items = []
+            if self.save_to_env('FYERS_ACCESS_TOKEN', access_token):
+                saved_items.append("Access Token")
+
+            if refresh_token and self.save_to_env('FYERS_REFRESH_TOKEN', refresh_token):
+                saved_items.append("Refresh Token")
+
+            if saved_items:
+                print(f" Saved: {', '.join(saved_items)}")
+
+            # Verify the setup
+            if self.is_token_valid(access_token):
+                print(f"\n AUTHENTICATION SUCCESSFUL!")
+                print(f" Access token is valid and ready to use")
+
+                # Try to get profile info
+                try:
+                    headers = {'Authorization': f"{self.client_id}:{access_token}"}
+                    response = requests.get(self.profile_url, headers=headers, timeout=10)
+
+                    if response.status_code == 200:
+                        result = response.json()
+                        if result.get('s') == 'ok':
+                            profile_data = result.get('data', {})
+                            print(f" Account: {profile_data.get('name', 'Unknown')}")
+                            print(f" Email: {profile_data.get('email', 'Unknown')}")
+                except:
+                    pass  # Profile fetch is optional
+
+                return access_token
+            else:
+                print(f" Token validation failed after setup")
+                return None
+
+        except Exception as e:
+            print(f" Authentication setup failed: {e}")
+            logger.exception("Full authentication setup error")
+            return None
+
+
     def get_valid_access_token(self) -> Optional[str]:
         """Get a valid access token, using refresh token if available"""
         try:
