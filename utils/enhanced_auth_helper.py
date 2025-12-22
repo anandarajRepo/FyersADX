@@ -158,7 +158,7 @@ class FyersAuthenticationHelper:
             logger.error(f"Authentication failed: {e}", exc_info=True)
             return False
 
-    def is_token_valid(self, access_token: str) -> bool:
+    def is_token_valid(self, access_token: str = None) -> bool:
         """Check if access token is still valid"""
         if not access_token or not self.client_id:
             return False
