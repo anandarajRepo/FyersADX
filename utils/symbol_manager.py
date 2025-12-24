@@ -160,7 +160,7 @@ class SymbolManager:
                 logger.info("=" * 70)
                 return symbols
             else:
-                logger.error("✗ No symbols generated")
+                logger.error("No symbols generated")
                 return []
 
         except Exception as e:
