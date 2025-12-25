@@ -253,8 +253,8 @@ def run(symbols, paper, auto_symbols, indices, otm_strikes):
     console.print("Authentication validated successfully")
 
     # Update config with latest tokens (critical - may have been refreshed)
-    config.fyers.access_token = auth_helper.config.access_token
-    config.fyers.refresh_token = auth_helper.config.refresh_token
+    config.fyers.access_token = config_dict['fyers_config'].access_token
+    config.fyers.refresh_token = config_dict['fyers_config'].refresh_token
 
     # Log token usage for debugging (show only first 20 chars for security)
     logging.info(f"Using access token: {config.fyers.access_token[:20]}...")
