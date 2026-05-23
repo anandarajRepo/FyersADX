@@ -30,7 +30,7 @@ class ATMSymbolGenerator:
             'spot_symbol': 'NSE:NIFTY50-INDEX',
             'option_prefix': 'NIFTY',
             'strike_interval': 50,
-            'lot_size': 50,
+            'lot_size': 75,
             'expiry_day': 1,  # Tuesday (0=Monday, 6=Sunday)
             'expiry_type': 'weekly'  # weekly or monthly
         },
