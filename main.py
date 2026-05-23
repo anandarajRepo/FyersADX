@@ -352,10 +352,12 @@ def run(symbols, paper, auto_symbols, indices, otm_strikes):
     # DISPLAY CONFIGURATION
     # ═══════════════════════════════════════════════════════
 
+    live_mode = config.trading.live_trading
     console.print(f"\n Trading Configuration:")
     console.print(f"   Symbols: {len(trading_symbols)}")
-    console.print(f"   Paper Trading: {'✓ Enabled' if config.trading.enable_paper_trading else '✗ Disabled'}")
-    console.print(f"   Order Execution: {'✓ Enabled' if config.trading.enable_order_execution else '✗ Disabled'}")
+    console.print(f"   Mode: {'⚡ LIVE TRADING (real money)' if live_mode else '📋 PAPER TRADING (no real orders)'}")
+    if not live_mode:
+        console.print(f"   Paper Log: logs/paper_trades_{datetime.now().strftime('%Y%m%d')}.json")
     console.print(f"   Square-off Time: {config.strategy.square_off_time} IST")
     console.print(f"   Max Positions: {config.strategy.max_positions}\n")
 
@@ -413,12 +415,14 @@ def auth(client_id, secret_key, redirect_uri, open_browser):
     """
     Setup Fyers API authentication.
 
-    This will guide you through the OAuth flow to obtain access tokens.
+    Automatically uses headless TOTP auth when FYERS_FY_ID and
+    FYERS_TOTP_SECRET are set in .env — no browser required.
+    Falls back to the manual OAuth copy-paste flow otherwise.
 
     Example:
         python main.py auth
         python main.py auth --client-id YOUR_ID --secret-key YOUR_KEY
-        python main.py auth --open-browser # Auto-open browser
+        python main.py auth --open-browser   # Auto-open browser (manual flow)
     """
     from utils.enhanced_auth_helper import FyersAuthenticationHelper
 

@@ -5,9 +5,11 @@ This module implements the complete trading strategy including signal generation
 position management, and the critical 3:20 PM square-off logic.
 """
 
+import json
 import logging
 import asyncio
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional
 from collections import defaultdict
 
@@ -20,6 +22,84 @@ from services.market_timing_service import MarketTimingService
 from config.settings import ADXStrategyConfig, TradingConfig, FyersConfig
 
 logger = logging.getLogger(__name__)
+
+
+class PaperTradeLogger:
+    """
+    Logs paper trade orders and closed trades to a daily JSON file.
+
+    File location: logs/paper_trades_YYYYMMDD.json
+    Each file is a JSON array of event objects with a 'type' field:
+      - "order"  : entry order logged when position is opened
+      - "trade"  : closed trade record when position is exited
+    """
+
+    def __init__(self):
+        Path("logs").mkdir(exist_ok=True)
+        date_str = datetime.now().strftime("%Y%m%d")
+        self.log_path = Path(f"logs/paper_trades_{date_str}.json")
+        self._records: list = []
+        # Load existing records if file already exists (e.g., strategy restarted same day)
+        if self.log_path.exists():
+            try:
+                with open(self.log_path, "r") as f:
+                    self._records = json.load(f)
+            except Exception:
+                self._records = []
+
+    def _flush(self):
+        try:
+            with open(self.log_path, "w") as f:
+                json.dump(self._records, f, indent=2, default=str)
+        except Exception as e:
+            logger.error(f"PaperTradeLogger write error: {e}")
+
+    def log_order(self, signal, quantity: int):
+        """Record a paper entry order."""
+        record = {
+            "type": "order",
+            "timestamp": datetime.now().isoformat(),
+            "symbol": signal.symbol,
+            "direction": signal.signal_type.value,
+            "quantity": quantity,
+            "entry_price": signal.entry_price,
+            "stop_loss": signal.stop_loss,
+            "target_price": signal.target_price,
+            "risk_reward_ratio": round(signal.risk_reward_ratio, 2),
+            "adx": round(signal.adx, 2),
+            "di_plus": round(signal.di_plus, 2),
+            "di_minus": round(signal.di_minus, 2),
+            "confidence": round(signal.confidence, 3),
+        }
+        self._records.append(record)
+        self._flush()
+        logger.info(f"[PAPER] Order logged → {self.log_path}")
+
+    def log_trade(self, trade_result):
+        """Record a closed paper trade."""
+        record = {
+            "type": "trade",
+            "timestamp": datetime.now().isoformat(),
+            "symbol": trade_result.symbol,
+            "direction": trade_result.signal_type.value,
+            "quantity": trade_result.quantity,
+            "entry_price": trade_result.entry_price,
+            "exit_price": trade_result.exit_price,
+            "entry_time": trade_result.entry_time.isoformat() if trade_result.entry_time else None,
+            "exit_time": trade_result.exit_time.isoformat() if trade_result.exit_time else None,
+            "holding_minutes": trade_result.holding_time_minutes,
+            "pnl": round(trade_result.pnl, 2),
+            "pnl_pct": round(trade_result.pnl_pct, 3),
+            "exit_reason": trade_result.exit_reason.value,
+            "result": "WIN" if trade_result.is_winner else "LOSS",
+        }
+        self._records.append(record)
+        self._flush()
+        logger.info(
+            f"[PAPER] Trade logged → {trade_result.symbol} "
+            f"{'WIN' if trade_result.is_winner else 'LOSS'} "
+            f"P&L ₹{trade_result.pnl:.2f} | {self.log_path}"
+        )
 
 
 class ADXStrategy:
@@ -89,11 +169,26 @@ class ADXStrategy:
             end_date=datetime.now()
         )
 
+        # Resolve live trading mode: LIVE_TRADING env flag takes precedence
+        # over the legacy enable_paper_trading / enable_order_execution flags.
+        if hasattr(trading_config, 'live_trading'):
+            self.live_trading = trading_config.live_trading
+        else:
+            # Backward-compat: derive from legacy flags
+            self.live_trading = (
+                trading_config.enable_order_execution and
+                not trading_config.enable_paper_trading
+            )
+
+        # Paper trade logger (used when not live)
+        self.paper_logger = PaperTradeLogger() if not self.live_trading else None
+
         # Flags
         self.is_running = False
         self.positions_squared_off_today = False
 
-        logger.info(f"Initialized ADXStrategy with {len(symbols)} symbols")
+        mode = "LIVE" if self.live_trading else "PAPER"
+        logger.info(f"Initialized ADXStrategy with {len(symbols)} symbols — mode: {mode}")
         logger.info(f"Max positions: {strategy_config.max_positions}")
         logger.info(f"Square-off time: {strategy_config.square_off_time}")
 
@@ -394,12 +489,12 @@ class ADXStrategy:
             )
 
             # ═══════════════════════════════════════════════════════
-            # PAPER TRADING MODE
+            # PAPER TRADING MODE (LIVE_TRADING=false)
             # ═══════════════════════════════════════════════════════
-            if self.trading_config.enable_paper_trading and not self.trading_config.enable_order_execution:
+            if not self.live_trading:
                 self.positions[signal.symbol] = position
                 logger.info("=" * 70)
-                logger.info("PAPER TRADE EXECUTED")
+                logger.info("PAPER TRADE EXECUTED (LIVE_TRADING=false)")
                 logger.info("=" * 70)
                 logger.info(f"   Type: {signal.signal_type.value}")
                 logger.info(f"   Symbol: {signal.symbol}")
@@ -408,12 +503,14 @@ class ADXStrategy:
                 logger.info(f"   Stop Loss: ₹{signal.stop_loss:.2f}")
                 logger.info(f"   Target: ₹{signal.target_price:.2f}")
                 logger.info("=" * 70)
+                if self.paper_logger:
+                    self.paper_logger.log_order(signal, quantity)
                 return True
 
             # ═══════════════════════════════════════════════════════
-            # LIVE TRADING MODE - PLACE REAL ORDER
+            # LIVE TRADING MODE - PLACE REAL ORDER (LIVE_TRADING=true)
             # ═══════════════════════════════════════════════════════
-            if self.trading_config.enable_order_execution:
+            if self.live_trading:
                 logger.info("=" * 70)
                 logger.info("LIVE TRADING MODE - PLACING REAL ORDER")
                 logger.info("=" * 70)
@@ -546,20 +643,8 @@ class ADXStrategy:
                     logger.error("=" * 70)
                     return False
 
-            # ═══════════════════════════════════════════════════════
-            # NO TRADING MODE ENABLED
-            # ═══════════════════════════════════════════════════════
-            logger.error("=" * 70)
-            logger.error(" NO TRADING MODE ENABLED!")
-            logger.error("=" * 70)
-            logger.error("   Current configuration:")
-            logger.error(f"   • ENABLE_PAPER_TRADING: {self.trading_config.enable_paper_trading}")
-            logger.error(f"   • ENABLE_ORDER_EXECUTION: {self.trading_config.enable_order_execution}")
-            logger.error("")
-            logger.error("   To enable trading, update your .env file:")
-            logger.error("   • For paper trading: ENABLE_PAPER_TRADING=true, ENABLE_ORDER_EXECUTION=false")
-            logger.error("   • For live trading: ENABLE_PAPER_TRADING=false, ENABLE_ORDER_EXECUTION=true")
-            logger.error("=" * 70)
+            # Should never reach here — both branches above are exhaustive
+            logger.error("Unexpected execution path in _execute_signal — check live_trading flag")
             return False
 
         except Exception as e:
@@ -716,6 +801,10 @@ class ADXStrategy:
         logger.info(f"CLOSED {position.signal_type.value} position for {symbol}: "
                     f"P&L ₹{realized_pnl:.2f} ({pnl_pct:.2f}%) - {result_str} "
                     f"[{exit_reason.value}]")
+
+        # Log closed trade to paper trade file when not live
+        if not self.live_trading and self.paper_logger:
+            self.paper_logger.log_trade(trade_result)
 
     async def _square_off_all_positions(self, exit_reason: ExitReason) -> None:
         """

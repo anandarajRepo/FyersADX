@@ -34,6 +34,9 @@ pytest-cov==4.1.0
 requests>=2.31.0
 python-dotenv==1.0.0
 
+# TOTP authentication (2FA for headless login)
+pyotp>=2.9.0
+
 # Optional: For backtesting visualization
 #matplotlib==3.8.2
 #seaborn==0.13.0

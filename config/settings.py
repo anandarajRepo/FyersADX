@@ -158,6 +158,8 @@ class FyersConfig:
         access_token: Current access token (auto-generated)
         refresh_token: Refresh token for token renewal
         pin: Trading PIN for order placement
+        fy_id: Fyers user ID / email (required for TOTP headless auth)
+        totp_secret: TOTP secret key from Fyers 2FA setup (enables headless auth)
         base_url: Fyers API base URL
         ws_url: WebSocket URL for real-time data
     """
@@ -167,6 +169,8 @@ class FyersConfig:
     access_token: Optional[str] = os.getenv("FYERS_ACCESS_TOKEN")
     refresh_token: Optional[str] = os.getenv("FYERS_REFRESH_TOKEN")
     pin: str = os.getenv("FYERS_PIN", "")
+    fy_id: str = os.getenv("FYERS_FY_ID", "")
+    totp_secret: str = os.getenv("FYERS_TOTP_SECRET", "")
 
     # API endpoints
     base_url: str = "https://api-t1.fyers.in/api/v3"
@@ -175,6 +179,10 @@ class FyersConfig:
     def is_authenticated(self) -> bool:
         """Check if valid access token exists."""
         return bool(self.access_token and len(self.access_token) > 0)
+
+    def has_totp(self) -> bool:
+        """Check if TOTP headless auth is configured."""
+        return bool(self.fy_id and self.totp_secret and self.pin)
 
     def validate(self) -> tuple[bool, list[str]]:
         """
@@ -216,8 +224,11 @@ class TradingConfig:
         max_daily_trades: Maximum trades per day
         backtest_mode: Running in backtest mode
     """
-    enable_paper_trading: bool = os.getenv("ENABLE_PAPER_TRADING", "false").lower() == "true"
-    enable_order_execution: bool = os.getenv("ENABLE_ORDER_EXECUTION", "true").lower() == "true"
+    # Single flag: LIVE_TRADING=true → real orders; false → paper mode with file logging
+    live_trading: bool = os.getenv("LIVE_TRADING", "false").lower() == "true"
+    # Legacy flags kept for backward compatibility; live_trading takes precedence when set
+    enable_paper_trading: bool = os.getenv("ENABLE_PAPER_TRADING", "true").lower() == "true"
+    enable_order_execution: bool = os.getenv("ENABLE_ORDER_EXECUTION", "false").lower() == "true"
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     monitoring_interval: int = int(os.getenv("MONITORING_INTERVAL", "10"))
     data_update_interval: int = int(os.getenv("DATA_UPDATE_INTERVAL", "5"))
