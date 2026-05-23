@@ -1,7 +1,9 @@
 """
-Enhanced Authentication Helper for Fyers API - WITH TOKEN REFRESH.
+Enhanced Authentication Helper for Fyers API - WITH TOKEN REFRESH AND TOTP.
 
-Implements automatic token refresh matching FyersORB implementation.
+Implements automatic token refresh and headless TOTP-based authentication.
+When FYERS_FY_ID and FYERS_TOTP_SECRET are set, authentication is fully
+automated with no browser or manual steps required.
 """
 
 import os
@@ -12,6 +14,14 @@ from urllib.parse import parse_qs, urlparse
 import requests
 import hashlib
 import getpass
+import time as time_module
+
+try:
+    import pyotp
+    PYOTP_AVAILABLE = True
+except ImportError:
+    PYOTP_AVAILABLE = False
+    logging.warning("pyotp not installed - TOTP headless auth unavailable. Run: pip install pyotp")
 
 try:
     from fyers_apiv3 import fyersModel
@@ -60,11 +70,150 @@ class FyersAuthenticationHelper:
         self.refresh_url = "https://api-t1.fyers.in/api/v3/validate-refresh-token"
         self.profile_url = "https://api-t1.fyers.in/api/v3/profile"
 
+        # Headless TOTP auth endpoints (Fyers vagator API)
+        self.vagator_base = "https://api-t2.fyers.in/vagator/v2"
+        self.fyers_token_url = "https://api-t1.fyers.in/api/v3/token"
+
+        # TOTP credentials from env
+        self.fy_id = os.environ.get('FYERS_FY_ID', getattr(config, 'fy_id', ''))
+        self.totp_secret = os.environ.get('FYERS_TOTP_SECRET', getattr(config, 'totp_secret', ''))
+
         logger.info("Initialized FyersAuthenticationHelper")
+
+    def authenticate_with_totp(self) -> bool:
+        """
+        Fully headless authentication using TOTP (no browser required).
+
+        Requires FYERS_FY_ID, FYERS_TOTP_SECRET, and FYERS_PIN to be set.
+        Uses Fyers vagator API to complete 2FA programmatically.
+
+        Returns:
+            bool: True if authentication successful
+        """
+        if not PYOTP_AVAILABLE:
+            logger.error("pyotp not installed. Run: pip install pyotp")
+            return False
+
+        if not self.fy_id or not self.totp_secret or not self.pin:
+            logger.error("TOTP auth requires FYERS_FY_ID, FYERS_TOTP_SECRET, and FYERS_PIN")
+            return False
+
+        if not FYERS_AVAILABLE:
+            logger.error("fyers-apiv3 not installed")
+            return False
+
+        logger.info("Starting TOTP headless authentication...")
+
+        try:
+            # Step 1: Send login OTP — initiates the auth session
+            resp = requests.post(
+                f"{self.vagator_base}/send_login_otp/v2",
+                json={"fy_id": self.fy_id, "app_id": "2"},
+                timeout=15
+            )
+            data = resp.json()
+            if resp.status_code != 200 or data.get('s') == 'error':
+                logger.error(f"send_login_otp failed: {data}")
+                return False
+            request_key = data['request_key']
+            logger.info("Step 1/4: Login OTP sent")
+
+            # Step 2: Verify OTP using TOTP generated from secret
+            # Retry once if the TOTP window just rolled over
+            for attempt in range(2):
+                totp_code = pyotp.TOTP(self.totp_secret).now()
+                resp = requests.post(
+                    f"{self.vagator_base}/verify_otp",
+                    json={"request_key": request_key, "otp": totp_code},
+                    timeout=15
+                )
+                data = resp.json()
+                if resp.status_code == 200 and data.get('s') != 'error':
+                    request_key = data['request_key']
+                    logger.info("Step 2/4: TOTP verified")
+                    break
+                if attempt == 0:
+                    logger.warning(f"TOTP verify attempt 1 failed ({data.get('message')}), retrying after 5s...")
+                    time_module.sleep(5)
+            else:
+                logger.error(f"verify_otp failed: {data}")
+                return False
+
+            # Step 3: Verify PIN
+            resp = requests.post(
+                f"{self.vagator_base}/verify_pin_v2",
+                json={"request_key": request_key, "identity_type": "pin", "identifier": self.pin},
+                timeout=15
+            )
+            data = resp.json()
+            if resp.status_code != 200 or data.get('s') == 'error':
+                logger.error(f"verify_pin failed: {data}")
+                return False
+            access_token_2fa = data['data']['access_token']
+            logger.info("Step 3/4: PIN verified")
+
+            # Step 4: Exchange for final auth code using token endpoint
+            app_id_short = self.client_id.split("-")[0] if self.client_id else ""
+            resp = requests.post(
+                self.fyers_token_url,
+                json={
+                    "fyers_id": self.fy_id,
+                    "app_id": app_id_short,
+                    "redirect_uri": self.redirect_uri,
+                    "appType": "100",
+                    "code_challenge": "",
+                    "state": "sample_state",
+                    "scope": "",
+                    "nonce": "",
+                    "response_type": "code",
+                    "create_cookie": True
+                },
+                headers={"Authorization": f"Bearer {access_token_2fa}"},
+                timeout=15
+            )
+            data = resp.json()
+            if resp.status_code != 308 and resp.status_code != 200:
+                logger.error(f"token endpoint failed (status {resp.status_code}): {data}")
+                return False
+
+            redirect_url = data.get('Url', '')
+            auth_code = self._extract_auth_code(redirect_url)
+            if not auth_code:
+                logger.error(f"Could not extract auth_code from: {redirect_url}")
+                return False
+            logger.info("Step 4/4: Auth code obtained")
+
+            # Step 5: Exchange auth code for access + refresh tokens via SDK
+            session = fyersModel.SessionModel(
+                client_id=self.client_id,
+                secret_key=self.secret_key,
+                redirect_uri=self.redirect_uri,
+                response_type="code",
+                grant_type="authorization_code"
+            )
+            session.set_token(auth_code)
+            token_response = session.generate_token()
+
+            if not self._validate_token_response(token_response):
+                return False
+
+            self.config.access_token = token_response['access_token']
+            self.config.refresh_token = token_response.get('refresh_token', auth_code)
+            self._update_env_file()
+
+            logger.info("TOTP authentication successful — tokens saved")
+            return True
+
+        except Exception as e:
+            logger.error(f"TOTP authentication failed: {e}", exc_info=True)
+            return False
 
     def authenticate(self) -> bool:
         """
         Perform complete authentication flow.
+
+        If TOTP credentials are configured, uses headless TOTP auth automatically.
+        Otherwise falls back to the manual OAuth copy-paste flow.
 
         Returns:
             bool: True if authentication successful
@@ -73,7 +222,12 @@ class FyersAuthenticationHelper:
             logger.error("Fyers API not available - install with: pip install fyers-apiv3")
             return False
 
-        logger.info("Starting OAuth authentication flow")
+        # Use headless TOTP flow if credentials are available
+        if self.fy_id and self.totp_secret and self.pin:
+            logger.info("TOTP credentials found — using headless authentication")
+            return self.authenticate_with_totp()
+
+        logger.info("Starting manual OAuth authentication flow")
 
         try:
             # Step 1: Create session
@@ -794,6 +948,12 @@ class FyersAuthenticationHelper:
 
             # If refresh failed or no refresh token, require full authentication
             logger.info("Full re-authentication required")
+            # Prefer headless TOTP if configured
+            if self.fy_id and self.totp_secret and self.pin:
+                logger.info("Re-authenticating via TOTP...")
+                if self.authenticate_with_totp():
+                    return self.config.access_token
+                return None
             return self.setup_full_authentication()
 
         except Exception as e:

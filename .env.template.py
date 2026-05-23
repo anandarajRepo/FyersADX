@@ -13,8 +13,18 @@ FYERS_REDIRECT_URI=http://localhost:8000/callback
 FYERS_ACCESS_TOKEN=
 FYERS_REFRESH_TOKEN=
 
-# Trading PIN (required for order placement)
+# Trading PIN (required for order placement and token refresh)
 FYERS_PIN=your_trading_pin_here
+
+# ============================================================================
+# TOTP HEADLESS AUTHENTICATION (Optional but recommended)
+# ============================================================================
+# Fyers user ID (mobile number or email registered with Fyers)
+FYERS_FY_ID=your_fyers_user_id_here
+
+# TOTP secret key from Fyers 2FA setup page (myapi.fyers.in → Enable TOTP)
+# When set, authentication is fully automated (no browser/manual steps needed)
+FYERS_TOTP_SECRET=your_totp_secret_here
 
 # ============================================================================
 # PORTFOLIO SETTINGS
@@ -52,10 +62,13 @@ SIGNAL_GENERATION_END_TIME=14:00
 # ============================================================================
 # TRADING SYSTEM SETTINGS
 # ============================================================================
-# Paper trading mode (no real orders placed)
-ENABLE_PAPER_TRADING=true
+# Master live trading switch:
+#   false = paper mode (orders logged to logs/paper_trades_YYYYMMDD.json, no real money)
+#   true  = live mode  (WARNING: Real orders will be placed with real money!)
+LIVE_TRADING=false
 
-# Enable actual order execution (WARNING: Real money!)
+# Legacy flags (kept for backward compatibility; LIVE_TRADING takes precedence)
+ENABLE_PAPER_TRADING=true
 ENABLE_ORDER_EXECUTION=false
 
 # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
