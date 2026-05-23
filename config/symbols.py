@@ -112,7 +112,7 @@ DEFAULT_TRADING_SYMBOLS = OPTIONS_SYMBOLS
 
 LOT_SIZES = {
     # Index Options
-    "NIFTY": 50,
+    "NIFTY": 75,
     "BANKNIFTY": 30,
     "FINNIFTY": 60,
     "MIDCPNIFTY": 120,
