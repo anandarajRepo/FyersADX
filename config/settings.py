@@ -158,7 +158,7 @@ class FyersConfig:
         access_token: Current access token (auto-generated)
         refresh_token: Refresh token for token renewal
         pin: Trading PIN for order placement
-        fy_id: Fyers user ID / email (required for TOTP headless auth)
+        fy_id: Fyers client ID (e.g. AB1234 — shown in Fyers dashboard top-right; required for TOTP headless auth)
         totp_secret: TOTP secret key from Fyers 2FA setup (enables headless auth)
         base_url: Fyers API base URL
         ws_url: WebSocket URL for real-time data
