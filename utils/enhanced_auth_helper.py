@@ -104,7 +104,7 @@ class FyersAuthenticationHelper:
         try:
             # Step 1: Send login OTP — initiates the auth session
             resp = requests.post(
-                f"{self.vagator_base}/send_login_otp/v2",
+                f"{self.vagator_base}/send_login_otp",
                 json={"fy_id": self.fy_id, "app_id": "2"},
                 timeout=15
             )
@@ -158,7 +158,7 @@ class FyersAuthenticationHelper:
 
             # Step 3: Verify PIN
             resp = requests.post(
-                f"{self.vagator_base}/verify_pin_v2",
+                f"{self.vagator_base}/verify_pin",
                 json={"request_key": request_key, "identity_type": "pin", "identifier": self.pin},
                 timeout=15
             )
