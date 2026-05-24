@@ -82,27 +82,24 @@ class FyersAuthenticationHelper:
 
     def authenticate_with_totp(self) -> bool:
         """
-        Fully headless authentication using TOTP (no browser required).
+        Authentication using manually entered TOTP (no browser required).
 
-        Requires FYERS_FY_ID, FYERS_TOTP_SECRET, and FYERS_PIN to be set.
+        Requires FYERS_FY_ID and FYERS_PIN to be set.
+        Prompts the user to enter the TOTP code from their authenticator app.
         Uses Fyers vagator API to complete 2FA programmatically.
 
         Returns:
             bool: True if authentication successful
         """
-        if not PYOTP_AVAILABLE:
-            logger.error("pyotp not installed. Run: pip install pyotp")
-            return False
-
-        if not self.fy_id or not self.totp_secret or not self.pin:
-            logger.error("TOTP auth requires FYERS_FY_ID, FYERS_TOTP_SECRET, and FYERS_PIN")
+        if not self.fy_id or not self.pin:
+            logger.error("TOTP auth requires FYERS_FY_ID and FYERS_PIN")
             return False
 
         if not FYERS_AVAILABLE:
             logger.error("fyers-apiv3 not installed")
             return False
 
-        logger.info("Starting TOTP headless authentication...")
+        logger.info("Starting TOTP authentication...")
 
         try:
             # Step 1: Send login OTP — initiates the auth session
@@ -118,10 +115,20 @@ class FyersAuthenticationHelper:
             request_key = data['request_key']
             logger.info("Step 1/4: Login OTP sent")
 
-            # Step 2: Verify OTP using TOTP generated from secret
-            # Retry once if the TOTP window just rolled over
-            for attempt in range(2):
-                totp_code = pyotp.TOTP(self.totp_secret).now()
+            # Step 2: Prompt user to enter TOTP from their authenticator app
+            print("\n" + "=" * 60)
+            print("TOTP VERIFICATION")
+            print("=" * 60)
+            print("Open your authenticator app and enter the 6-digit TOTP code")
+            print(f"for your Fyers account ({self.fy_id}).")
+            print("=" * 60)
+
+            for attempt in range(3):
+                totp_code = input(f"\nEnter TOTP code (attempt {attempt + 1}/3): ").strip()
+                if not totp_code.isdigit() or len(totp_code) != 6:
+                    print("Invalid code — must be exactly 6 digits. Please try again.")
+                    continue
+
                 resp = requests.post(
                     f"{self.vagator_base}/verify_otp",
                     json={"request_key": request_key, "otp": totp_code},
@@ -132,11 +139,9 @@ class FyersAuthenticationHelper:
                     request_key = data['request_key']
                     logger.info("Step 2/4: TOTP verified")
                     break
-                if attempt == 0:
-                    logger.warning(f"TOTP verify attempt 1 failed ({data.get('message')}), retrying after 5s...")
-                    time_module.sleep(5)
+                print(f"TOTP verification failed: {data.get('message', 'unknown error')}. Please try again.")
             else:
-                logger.error(f"verify_otp failed: {data}")
+                logger.error(f"verify_otp failed after all attempts: {data}")
                 return False
 
             # Step 3: Verify PIN
@@ -222,9 +227,9 @@ class FyersAuthenticationHelper:
             logger.error("Fyers API not available - install with: pip install fyers-apiv3")
             return False
 
-        # Use headless TOTP flow if credentials are available
-        if self.fy_id and self.totp_secret and self.pin:
-            logger.info("TOTP credentials found — using headless authentication")
+        # Use TOTP flow if Fyers ID and PIN are available
+        if self.fy_id and self.pin:
+            logger.info("Fyers ID and PIN found — using TOTP authentication (manual code entry)")
             return self.authenticate_with_totp()
 
         logger.info("Starting manual OAuth authentication flow")
@@ -948,8 +953,8 @@ class FyersAuthenticationHelper:
 
             # If refresh failed or no refresh token, require full authentication
             logger.info("Full re-authentication required")
-            # Prefer headless TOTP if configured
-            if self.fy_id and self.totp_secret and self.pin:
+            # Use TOTP flow if Fyers ID and PIN are configured
+            if self.fy_id and self.pin:
                 logger.info("Re-authenticating via TOTP...")
                 if self.authenticate_with_totp():
                     return self.config.access_token
