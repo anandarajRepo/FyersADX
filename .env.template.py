@@ -19,8 +19,9 @@ FYERS_PIN=your_trading_pin_here
 # ============================================================================
 # TOTP HEADLESS AUTHENTICATION (Optional but recommended)
 # ============================================================================
-# Fyers user ID (mobile number or email registered with Fyers)
-FYERS_FY_ID=your_fyers_user_id_here
+# Fyers client ID shown in your Fyers dashboard top-right (e.g. AB1234)
+# NOT your email or mobile number — this is the short broker client code
+FYERS_FY_ID=your_fyers_client_id_here
 
 # TOTP secret key from Fyers 2FA setup page (myapi.fyers.in → Enable TOTP)
 # When set, authentication is fully automated (no browser/manual steps needed)
