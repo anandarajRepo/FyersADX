@@ -108,7 +108,14 @@ class FyersAuthenticationHelper:
                 json={"fy_id": self.fy_id, "app_id": "2"},
                 timeout=15
             )
-            data = resp.json()
+            logger.debug(f"send_login_otp status={resp.status_code} body={resp.text[:500]}")
+            try:
+                data = resp.json()
+            except Exception:
+                logger.error(
+                    f"send_login_otp returned non-JSON (status {resp.status_code}): {resp.text[:500]}"
+                )
+                return False
             if resp.status_code != 200 or data.get('s') == 'error':
                 logger.error(f"send_login_otp failed: {data}")
                 return False
@@ -134,7 +141,12 @@ class FyersAuthenticationHelper:
                     json={"request_key": request_key, "otp": totp_code},
                     timeout=15
                 )
-                data = resp.json()
+                logger.debug(f"verify_otp status={resp.status_code} body={resp.text[:500]}")
+                try:
+                    data = resp.json()
+                except Exception:
+                    logger.error(f"verify_otp returned non-JSON (status {resp.status_code}): {resp.text[:500]}")
+                    continue
                 if resp.status_code == 200 and data.get('s') != 'error':
                     request_key = data['request_key']
                     logger.info("Step 2/4: TOTP verified")
@@ -150,7 +162,12 @@ class FyersAuthenticationHelper:
                 json={"request_key": request_key, "identity_type": "pin", "identifier": self.pin},
                 timeout=15
             )
-            data = resp.json()
+            logger.debug(f"verify_pin status={resp.status_code} body={resp.text[:500]}")
+            try:
+                data = resp.json()
+            except Exception:
+                logger.error(f"verify_pin returned non-JSON (status {resp.status_code}): {resp.text[:500]}")
+                return False
             if resp.status_code != 200 or data.get('s') == 'error':
                 logger.error(f"verify_pin failed: {data}")
                 return False
@@ -176,7 +193,12 @@ class FyersAuthenticationHelper:
                 headers={"Authorization": f"Bearer {access_token_2fa}"},
                 timeout=15
             )
-            data = resp.json()
+            logger.debug(f"fyers_token status={resp.status_code} body={resp.text[:500]}")
+            try:
+                data = resp.json()
+            except Exception:
+                logger.error(f"fyers_token returned non-JSON (status {resp.status_code}): {resp.text[:500]}")
+                return False
             if resp.status_code != 308 and resp.status_code != 200:
                 logger.error(f"token endpoint failed (status {resp.status_code}): {data}")
                 return False
