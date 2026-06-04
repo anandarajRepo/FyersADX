@@ -113,3 +113,4 @@ access_token.txt
 trades.csv
 positions.csv
 performance.csv
+cache/
