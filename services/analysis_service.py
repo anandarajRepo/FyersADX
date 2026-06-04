@@ -5,7 +5,9 @@ This service handles all indicator calculations, crossover detection, and signal
 quality validation for the ADX DI Crossover strategy.
 """
 
+import json
 import logging
+import os
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -38,7 +40,9 @@ class ADXTechnicalAnalysisService:
         self.indicator_history: Dict[str, List[ADXIndicators]] = {}
         self.volume_history: Dict[str, List[int]] = {}
         self.price_history: Dict[str, pd.DataFrame] = {}
+        self._history_cache_path = os.path.join("cache", "indicator_history.json")
 
+        self._load_indicator_history()
         logger.info(f"Initialized ADXTechnicalAnalysisService with DI period: {config.di_period}")
 
     def calculate_di_indicators(
@@ -191,6 +195,7 @@ class ADXTechnicalAnalysisService:
         if len(self.indicator_history[symbol]) > 100:
             self.indicator_history[symbol] = self.indicator_history[symbol][-100:]
 
+        self._save_indicator_history()
         return indicator
 
     def detect_di_crossover(
@@ -496,3 +501,56 @@ class ADXTechnicalAnalysisService:
             self.volume_history.clear()
             self.price_history.clear()
             logger.info("Cleared all historical data")
+        self._save_indicator_history()
+
+    def _save_indicator_history(self) -> None:
+        """Persist indicator_history to disk so it survives restarts."""
+        try:
+            os.makedirs(os.path.dirname(self._history_cache_path), exist_ok=True)
+            data: Dict[str, list] = {}
+            for symbol, entries in self.indicator_history.items():
+                data[symbol] = [
+                    {
+                        "symbol": e.symbol,
+                        "di_plus": e.di_plus,
+                        "di_minus": e.di_minus,
+                        "adx": e.adx,
+                        "true_range": e.true_range,
+                        "dm_plus": e.dm_plus,
+                        "dm_minus": e.dm_minus,
+                        "timestamp": e.timestamp.isoformat(),
+                        "period": e.period,
+                    }
+                    for e in entries
+                ]
+            with open(self._history_cache_path, "w") as f:
+                json.dump(data, f)
+        except Exception as e:
+            logger.warning(f"Failed to save indicator history: {e}")
+
+    def _load_indicator_history(self) -> None:
+        """Load persisted indicator_history from disk on startup."""
+        if not os.path.exists(self._history_cache_path):
+            return
+        try:
+            with open(self._history_cache_path, "r") as f:
+                data = json.load(f)
+            for symbol, entries in data.items():
+                self.indicator_history[symbol] = [
+                    ADXIndicators(
+                        symbol=e["symbol"],
+                        di_plus=e["di_plus"],
+                        di_minus=e["di_minus"],
+                        adx=e["adx"],
+                        true_range=e["true_range"],
+                        dm_plus=e["dm_plus"],
+                        dm_minus=e["dm_minus"],
+                        timestamp=datetime.fromisoformat(e["timestamp"]),
+                        period=e["period"],
+                    )
+                    for e in entries
+                ]
+            total = sum(len(v) for v in self.indicator_history.values())
+            logger.info(f"Loaded indicator history: {len(self.indicator_history)} symbols, {total} entries")
+        except Exception as e:
+            logger.warning(f"Failed to load indicator history: {e}")
