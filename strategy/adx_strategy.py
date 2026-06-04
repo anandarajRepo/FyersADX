@@ -195,6 +195,7 @@ class ADXStrategy:
     async def run_strategy_cycle(self) -> None:
         """Main strategy execution cycle."""
         self.is_running = True
+        self._last_df_snapshot_time: datetime = datetime.min
         logger.info("Starting ADX strategy cycle")
 
         try:
@@ -248,6 +249,12 @@ class ADXStrategy:
                 # Log status periodically
                 if self.daily_trades % 10 == 0:
                     self._log_strategy_status()
+
+                # Log dataframe snapshot every 15 minutes
+                now = datetime.now()
+                if (now - self._last_df_snapshot_time).total_seconds() >= 900:
+                    self.analysis_service.log_dataframe_snapshot()
+                    self._last_df_snapshot_time = now
 
                 # Sleep before next cycle
                 await asyncio.sleep(self.trading_config.monitoring_interval)

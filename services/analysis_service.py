@@ -528,6 +528,36 @@ class ADXTechnicalAnalysisService:
         except Exception as e:
             logger.warning(f"Failed to save indicator history: {e}")
 
+    def log_dataframe_snapshot(self) -> None:
+        """Log the latest computed ADX/DI values for all symbols with available price history."""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logger.info(f"===== DataFrame Snapshot @ {now} =====")
+
+        if not self.price_history:
+            logger.info("No price history available yet.")
+            logger.info("=" * 50)
+            return
+
+        for symbol, df in self.price_history.items():
+            if df.empty or len(df) < self.config.di_period + 1:
+                logger.info(f"[{symbol}] Insufficient data ({len(df)} rows, need {self.config.di_period + 1})")
+                continue
+
+            try:
+                df_calc = self.calculate_di_indicators(df, self.config.di_period)
+                latest = df_calc.iloc[-1]
+                logger.info(
+                    f"[{symbol}] rows={len(df)} | "
+                    f"+DI={latest['+DI']:.4f} | -DI={latest['-DI']:.4f} | "
+                    f"ADX={latest['ADX']:.4f} | TR={latest['TR']:.4f} | "
+                    f"DM+={latest['DM+']:.4f} | DM-={latest['DM-']:.4f} | "
+                    f"last_close={latest['close']:.4f}"
+                )
+            except Exception as e:
+                logger.error(f"[{symbol}] Snapshot calculation error: {e}")
+
+        logger.info("=" * 50)
+
     def _load_indicator_history(self) -> None:
         """Load persisted indicator_history from disk on startup."""
         if not os.path.exists(self._history_cache_path):
