@@ -43,7 +43,8 @@ class FyersWebSocketService:
         self,
         fyers_config: FyersConfig,
         strategy_config: ADXStrategyConfig,
-        symbols: List[str]
+        symbols: List[str],
+        analysis_service: Optional[ADXTechnicalAnalysisService] = None
     ):
         """
         Initialize WebSocket service.
@@ -52,13 +53,14 @@ class FyersWebSocketService:
             fyers_config: Fyers API configuration
             strategy_config: Strategy configuration
             symbols: List of symbols to subscribe
+            analysis_service: Shared analysis service instance (uses a new one if not provided)
         """
         self.fyers_config = fyers_config
         self.strategy_config = strategy_config
         self.symbols = symbols
 
-        # Analysis service for indicators
-        self.analysis_service = ADXTechnicalAnalysisService(strategy_config)
+        # Use shared analysis service so indicator_history is visible to the strategy
+        self.analysis_service = analysis_service or ADXTechnicalAnalysisService(strategy_config)
 
         # WebSocket instance
         self.ws_instance = None
@@ -479,16 +481,18 @@ class HybridADXDataService:
         self,
         fyers_config: FyersConfig,
         strategy_config: ADXStrategyConfig,
-        symbols: List[str]
+        symbols: List[str],
+        analysis_service: Optional[ADXTechnicalAnalysisService] = None
     ):
         """Initialize hybrid service."""
         self.fyers_config = fyers_config
         self.strategy_config = strategy_config
         self.symbols = symbols
 
-        # WebSocket service
+        # WebSocket service — share the caller's analysis_service so both
+        # indicator_history and latest_indicators live in the same instance.
         self.ws_service = FyersWebSocketService(
-            fyers_config, strategy_config, symbols
+            fyers_config, strategy_config, symbols, analysis_service
         )
 
         # REST API instance (for fallback)

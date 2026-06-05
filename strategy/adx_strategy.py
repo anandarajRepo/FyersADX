@@ -123,7 +123,21 @@ class ADXStrategy:
             fyers_config: Optional[FyersConfig] = None
     ):
 
-        # ADD THIS: Initialize data service for real-time quotes and indicators
+        self.strategy_config = strategy_config
+        self.trading_config = trading_config
+        self.symbols = symbols
+        self.fyers_config = fyers_config
+
+        # Initialize services — analysis_service must be created first so it
+        # can be shared with the WebSocket service (fixes the split-instance bug
+        # that caused "No previous indicators available" on every scan cycle).
+        self.analysis_service = ADXTechnicalAnalysisService(strategy_config)
+        self.timing_service = MarketTimingService(
+            square_off_time=strategy_config.square_off_time,
+            signal_cutoff_time=strategy_config.signal_generation_end_time
+        )
+
+        # Initialize data service, sharing the same analysis_service instance
         from services.fyers_websocket_service import HybridADXDataService
 
         self.data_service = None
@@ -131,30 +145,12 @@ class ADXStrategy:
             self.data_service = HybridADXDataService(
                 fyers_config=fyers_config,
                 strategy_config=strategy_config,
-                symbols=symbols
+                symbols=symbols,
+                analysis_service=self.analysis_service
             )
             logger.info("Initialized HybridADXDataService for real-time data")
         else:
             logger.warning("No data service initialized - running in limited mode")
-        """
-        Initialize the ADX strategy.
-
-        Args:
-            strategy_config: Strategy configuration
-            trading_config: Trading system configuration
-            symbols: List of symbols to trade
-        """
-        self.strategy_config = strategy_config
-        self.trading_config = trading_config
-        self.symbols = symbols
-        self.fyers_config = fyers_config
-
-        # Initialize services
-        self.analysis_service = ADXTechnicalAnalysisService(strategy_config)
-        self.timing_service = MarketTimingService(
-            square_off_time=strategy_config.square_off_time,
-            signal_cutoff_time=strategy_config.signal_generation_end_time
-        )
 
         # State management
         self.positions: Dict[str, Position] = {}
