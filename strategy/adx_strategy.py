@@ -315,7 +315,7 @@ class ADXStrategy:
         """
         Scan all symbols for DI crossovers and generate signals.
         """
-        logger.info(f"Scanning {len(self.symbols)} symbols for crossovers")
+        self.analysis_service.print_df_tail()
 
         for symbol in self.symbols:
             try:
@@ -922,11 +922,7 @@ class ADXStrategy:
         time_remaining = self.timing_service.time_until_square_off()
         time_str = self.timing_service.format_time_remaining(time_remaining) if time_remaining else "Past square-off"
 
-        logger.info(f"Strategy Status: "
-                    f"Positions {len(self.positions)}/{self.strategy_config.max_positions} | "
-                    f"Daily P&L RS.{self.daily_pnl:.2f} | "
-                    f"Trades {self.daily_trades} | "
-                    f"Square-off in {time_str}")
+        self.analysis_service.print_df_tail()
 
     def get_status_summary(self) -> Dict:
         """Get comprehensive strategy status."""

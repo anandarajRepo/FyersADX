@@ -220,7 +220,7 @@ class ADXTechnicalAnalysisService:
             if symbol in self.indicator_history and len(self.indicator_history[symbol]) >= 2:
                 previous_indicators = self.indicator_history[symbol][-2]
             else:
-                logger.info(f"No previous indicators available for {symbol}")
+                self.print_df_tail(symbol)
                 return None
 
         # Check for +DI crossing above -DI (LONG signal)
@@ -527,6 +527,15 @@ class ADXTechnicalAnalysisService:
                 json.dump(data, f)
         except Exception as e:
             logger.warning(f"Failed to save indicator history: {e}")
+
+    def print_df_tail(self, symbol: str = None, n: int = 5) -> None:
+        """Print the last n rows of price_history for one or all symbols."""
+        targets = {symbol: self.price_history[symbol]} if symbol and symbol in self.price_history else self.price_history
+        if not targets:
+            logger.info("No price history available yet.")
+            return
+        for sym, df in targets.items():
+            logger.info(f"[{sym}] last {min(n, len(df))} rows:\n{df.tail(n).to_string()}")
 
     def log_dataframe_snapshot(self) -> None:
         """Log the latest computed ADX/DI values for all symbols with available price history."""
