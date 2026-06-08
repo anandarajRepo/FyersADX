@@ -530,7 +530,7 @@ class ADXTechnicalAnalysisService:
 
     def print_df_tail(self, symbol: str = None, n: int = 5) -> None:
         """Print the last n rows of price_history for one or all symbols."""
-        targets = {symbol: self.price_history[symbol]} if symbol and symbol in self.price_history else self.price_history
+        targets = {symbol: self.price_history[symbol]} if symbol and symbol in self.price_history else dict(self.price_history)
         if not targets:
             logger.info("No price history available yet.")
             return
@@ -547,7 +547,7 @@ class ADXTechnicalAnalysisService:
             logger.info("=" * 50)
             return
 
-        for symbol, df in self.price_history.items():
+        for symbol, df in dict(self.price_history).items():
             if df.empty or len(df) < self.config.di_period + 1:
                 logger.info(f"[{symbol}] Insufficient data ({len(df)} rows, need {self.config.di_period + 1})")
                 continue
