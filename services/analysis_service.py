@@ -563,7 +563,47 @@ class ADXTechnicalAnalysisService:
 
             self._last_printed_ts[sym] = latest_ts
             self._last_printed_ts[f"{sym}__stale_warned"] = False
-            logger.info(f"[{sym}] last {min(n, len(df))} rows:\n{df.tail(n).to_string()}")
+
+            display_df = self._build_display_df(df)
+            logger.info(
+                f"[{sym}] last {min(n, len(display_df))} rows:\n"
+                f"{display_df.tail(n).to_string()}"
+            )
+
+    def _build_display_df(self, df: 'pd.DataFrame') -> 'pd.DataFrame':
+        """Return a reference dataframe with price + ADX/DI values and crossover signals.
+
+        Augments the raw OHLC frame (timestamp/high/low/close) with the computed
+        +DI, -DI and ADX columns, plus a 'signal' column flagging DI crossovers
+        (LONG when +DI crosses above -DI, SHORT when -DI crosses above +DI).
+        This is purely informational for log inspection; it does not affect
+        signal generation.
+        """
+        base_cols = ['timestamp', 'high', 'low', 'close']
+
+        # Not enough data to compute indicators — return raw prices as-is.
+        if len(df) < self.config.di_period + 1:
+            return df[[c for c in base_cols if c in df.columns]].copy()
+
+        enriched = self.calculate_di_indicators(df, self.config.di_period)
+
+        # Round indicator columns for readable log output.
+        for col in ['+DI', '-DI', 'ADX']:
+            if col in enriched.columns:
+                enriched[col] = enriched[col].round(2)
+
+        # Derive a crossover signal column by comparing each row to the previous.
+        prev_plus = enriched['+DI'].shift(1)
+        prev_minus = enriched['-DI'].shift(1)
+        long_cross = (prev_plus <= prev_minus) & (enriched['+DI'] > enriched['-DI'])
+        short_cross = (prev_minus <= prev_plus) & (enriched['-DI'] > enriched['+DI'])
+
+        enriched['signal'] = ''
+        enriched.loc[long_cross, 'signal'] = 'LONG'
+        enriched.loc[short_cross, 'signal'] = 'SHORT'
+
+        display_cols = base_cols + ['+DI', '-DI', 'ADX', 'signal']
+        return enriched[[c for c in display_cols if c in enriched.columns]].copy()
 
     def log_dataframe_snapshot(self) -> None:
         """Log the latest computed ADX/DI values for all symbols with available price history."""
