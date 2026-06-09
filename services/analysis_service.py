@@ -529,12 +529,40 @@ class ADXTechnicalAnalysisService:
             logger.warning(f"Failed to save indicator history: {e}")
 
     def print_df_tail(self, symbol: str = None, n: int = 5) -> None:
-        """Print the last n rows of price_history for one or all symbols."""
+        """Print the last n rows of price_history for one or all symbols.
+
+        Only prints when new data has arrived since the previous call for that
+        symbol. If the latest timestamp is unchanged (feed frozen / no new
+        ticks), a single staleness warning is emitted instead of re-printing
+        the same dataframe on every scan iteration.
+        """
         targets = {symbol: self.price_history[symbol]} if symbol and symbol in self.price_history else dict(self.price_history)
         if not targets:
             logger.info("No price history available yet.")
             return
+
+        # Lazily initialise the per-symbol marker that tracks the last printed tick.
+        if not hasattr(self, "_last_printed_ts"):
+            self._last_printed_ts: Dict[str, object] = {}
+
         for sym, df in targets.items():
+            if df.empty:
+                continue
+
+            latest_ts = df['timestamp'].iloc[-1]
+
+            if self._last_printed_ts.get(sym) == latest_ts:
+                # No new data since last print — surface the freeze once, not every scan.
+                if not self._last_printed_ts.get(f"{sym}__stale_warned"):
+                    logger.warning(
+                        f"[{sym}] No new price data since {latest_ts} "
+                        f"(feed may be stale or disconnected)."
+                    )
+                    self._last_printed_ts[f"{sym}__stale_warned"] = True
+                continue
+
+            self._last_printed_ts[sym] = latest_ts
+            self._last_printed_ts[f"{sym}__stale_warned"] = False
             logger.info(f"[{sym}] last {min(n, len(df))} rows:\n{df.tail(n).to_string()}")
 
     def log_dataframe_snapshot(self) -> None:
