@@ -82,6 +82,10 @@ class FyersWebSocketService:
         self.max_reconnect_attempts = 10
         self.reconnect_delay = 5
 
+        # Event loop reference captured at connect time so SDK thread callbacks
+        # (e.g. _on_close) can safely schedule coroutines back onto the loop.
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
         # Subscribed symbols
         self.subscribed_symbols: Set[str] = set()
 
@@ -104,6 +108,13 @@ class FyersWebSocketService:
 
         try:
             logger.info("Connecting to Fyers WebSocket...")
+
+            # Capture the running event loop so SDK-thread callbacks can schedule
+            # coroutines (reconnect) back onto it via run_coroutine_threadsafe.
+            try:
+                self._loop = asyncio.get_running_loop()
+            except RuntimeError:
+                self._loop = None
 
             # Create WebSocket instance with proper data type
             self.ws_instance = data_ws.FyersDataSocket(
@@ -236,11 +247,16 @@ class FyersWebSocketService:
         message = args[0] if args else kwargs.get('message', 'Connection closed')
         logger.warning(f"WebSocket closed: {message}")
 
-        # Attempt reconnection
+        # Attempt reconnection. This callback runs on the Fyers SDK's own thread,
+        # which has no running asyncio loop, so schedule the coroutine onto the
+        # main loop captured at connect time instead of asyncio.create_task().
         if self.is_running and self.reconnect_attempts < self.max_reconnect_attempts:
             self.reconnect_attempts += 1
             logger.info(f"Attempting reconnection {self.reconnect_attempts}/{self.max_reconnect_attempts}")
-            asyncio.create_task(self._reconnect())
+            if self._loop is not None and self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(self._reconnect(), self._loop)
+            else:
+                logger.error("No running event loop available to schedule reconnection")
 
     def _on_error(self, *args, **kwargs):
         """WebSocket error callback."""
