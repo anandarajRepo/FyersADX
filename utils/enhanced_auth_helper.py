@@ -80,13 +80,54 @@ class FyersAuthenticationHelper:
 
         logger.info("Initialized FyersAuthenticationHelper")
 
+    def _can_auto_totp(self) -> bool:
+        """Return True when a TOTP secret is configured and pyotp is available.
+
+        When True, the TOTP code is generated automatically from the secret in
+        the environment, enabling a fully headless (no manual entry) login.
+        """
+        return bool(self.totp_secret) and PYOTP_AVAILABLE
+
+    def _generate_totp_code(self) -> Optional[str]:
+        """Generate the current 6-digit TOTP code from the configured secret.
+
+        Returns:
+            The current TOTP code, or None if it cannot be generated.
+        """
+        if not self.totp_secret:
+            logger.error("No TOTP secret configured (set FYERS_TOTP_SECRET in .env)")
+            return None
+        if not PYOTP_AVAILABLE:
+            logger.error("pyotp not installed — cannot auto-generate TOTP. Run: pip install pyotp")
+            return None
+        try:
+            # Strip spaces in case the secret was copied with grouping/whitespace.
+            secret = self.totp_secret.replace(" ", "").strip()
+            return pyotp.TOTP(secret).now()
+        except Exception as e:
+            logger.error(f"Error generating TOTP code from secret: {e}")
+            return None
+
+    def _wait_for_next_totp_window(self, period: int = 30) -> None:
+        """Block until the start of the next TOTP time window.
+
+        Ensures a retry uses a fresh code rather than replaying the previous one.
+        """
+        seconds_into_window = int(time_module.time()) % period
+        wait = period - seconds_into_window
+        logger.info(f"Waiting {wait}s for the next TOTP window before retrying...")
+        time_module.sleep(wait)
+
     def authenticate_with_totp(self) -> bool:
         """
-        Authentication using manually entered TOTP (no browser required).
+        Headless TOTP authentication (no browser required).
 
         Requires FYERS_FY_ID and FYERS_PIN to be set.
-        Prompts the user to enter the TOTP code from their authenticator app.
-        Uses Fyers vagator API to complete 2FA programmatically.
+
+        If FYERS_TOTP_SECRET is set, the 6-digit TOTP code is generated
+        automatically from the secret (fully automated, no manual steps).
+        Otherwise the user is prompted to enter the TOTP code from their
+        authenticator app. Uses Fyers vagator API to complete 2FA.
 
         Returns:
             bool: True if authentication successful
@@ -122,19 +163,38 @@ class FyersAuthenticationHelper:
             request_key = data['request_key']
             logger.info("Step 1/4: Login OTP sent")
 
-            # Step 2: Prompt user to enter TOTP from their authenticator app
-            print("\n" + "=" * 60)
-            print("TOTP VERIFICATION")
-            print("=" * 60)
-            print("Open your authenticator app and enter the 6-digit TOTP code")
-            print(f"for your Fyers account ({self.fy_id}).")
-            print("=" * 60)
+            # Step 2: Provide the TOTP code.
+            # If FYERS_TOTP_SECRET is configured we generate the code ourselves
+            # (fully headless). Otherwise we fall back to manual entry from the
+            # user's authenticator app.
+            auto_totp = self._can_auto_totp()
+            if auto_totp:
+                logger.info("TOTP secret found in environment — generating TOTP automatically")
+            else:
+                print("\n" + "=" * 60)
+                print("TOTP VERIFICATION")
+                print("=" * 60)
+                print("Open your authenticator app and enter the 6-digit TOTP code")
+                print(f"for your Fyers account ({self.fy_id}).")
+                print("=" * 60)
 
             for attempt in range(3):
-                totp_code = input(f"\nEnter TOTP code (attempt {attempt + 1}/3): ").strip()
-                if not totp_code.isdigit() or len(totp_code) != 6:
-                    print("Invalid code — must be exactly 6 digits. Please try again.")
-                    continue
+                if auto_totp:
+                    totp_code = self._generate_totp_code()
+                    if not totp_code:
+                        logger.error("Failed to generate TOTP code from secret")
+                        return False
+                    logger.info(f"Generated TOTP automatically (attempt {attempt + 1}/3)")
+                    # Avoid replaying a near-expiry code on a retry: wait for the
+                    # next 30-second window so a fresh code is generated.
+                    if attempt > 0:
+                        self._wait_for_next_totp_window()
+                        totp_code = self._generate_totp_code()
+                else:
+                    totp_code = input(f"\nEnter TOTP code (attempt {attempt + 1}/3): ").strip()
+                    if not totp_code.isdigit() or len(totp_code) != 6:
+                        print("Invalid code — must be exactly 6 digits. Please try again.")
+                        continue
 
                 resp = requests.post(
                     f"{self.vagator_base}/verify_otp",
@@ -151,7 +211,11 @@ class FyersAuthenticationHelper:
                     request_key = data['request_key']
                     logger.info("Step 2/4: TOTP verified")
                     break
-                print(f"TOTP verification failed: {data.get('message', 'unknown error')}. Please try again.")
+                msg = data.get('message', 'unknown error')
+                if auto_totp:
+                    logger.warning(f"TOTP verification failed: {msg}. Retrying with a fresh code...")
+                else:
+                    print(f"TOTP verification failed: {msg}. Please try again.")
             else:
                 logger.error(f"verify_otp failed after all attempts: {data}")
                 return False
@@ -251,7 +315,10 @@ class FyersAuthenticationHelper:
 
         # Use TOTP flow if Fyers ID and PIN are available
         if self.fy_id and self.pin:
-            logger.info("Fyers ID and PIN found — using TOTP authentication (manual code entry)")
+            if self._can_auto_totp():
+                logger.info("Fyers ID, PIN and TOTP secret found — using automated headless TOTP authentication")
+            else:
+                logger.info("Fyers ID and PIN found — using TOTP authentication (manual code entry)")
             return self.authenticate_with_totp()
 
         logger.info("Starting manual OAuth authentication flow")
