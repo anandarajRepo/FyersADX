@@ -47,6 +47,11 @@ class ADXStrategyConfig:
 
     # ADX/DI parameters
     di_period: int = int(os.getenv("DI_PERIOD", "30"))
+    # Tick-to-candle aggregation interval (seconds). Incoming ticks carry only the
+    # day's static high/low, which makes directional movement always zero. We build
+    # our own OHLC candles from the LTP stream over this interval so +DI/-DI/ADX
+    # have real bar-to-bar movement to work with.
+    candle_interval_seconds: int = int(os.getenv("CANDLE_INTERVAL_SECONDS", "60"))
     volume_threshold_percentile: float = float(os.getenv("VOLUME_THRESHOLD_PERCENTILE", "50.0"))
     min_volume_ratio: float = float(os.getenv("MIN_VOLUME_RATIO", "1.5"))
 
