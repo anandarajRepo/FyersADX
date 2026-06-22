@@ -40,6 +40,9 @@ class ADXTechnicalAnalysisService:
         self.indicator_history: Dict[str, List[ADXIndicators]] = {}
         self.volume_history: Dict[str, List[int]] = {}
         self.price_history: Dict[str, pd.DataFrame] = {}
+        # Tracks the bucket start time of the candle currently being built per
+        # symbol, so we know when to update the in-progress candle vs. start a new one.
+        self._current_candle_bucket: Dict[str, datetime] = {}
         self._history_cache_path = os.path.join("cache", "indicator_history.json")
 
         self._load_indicator_history()
@@ -61,6 +64,12 @@ class ADXTechnicalAnalysisService:
             DataFrame with additional columns: +DI, -DI, ADX, TR, DM+, DM-
         """
         df = df.copy()
+
+        # Ensure numeric dtypes — an empty DataFrame created with only `columns=`
+        # carries object dtype, which breaks the masked DM assignments below on
+        # newer pandas versions.
+        for col in ('high', 'low', 'close'):
+            df[col] = pd.to_numeric(df[col], errors='coerce')
 
         # Calculate True Range (TR)
         df['prev_close'] = df['close'].shift(1)
@@ -192,6 +201,111 @@ class ADXTechnicalAnalysisService:
         self.indicator_history[symbol].append(indicator)
 
         # Keep limited history
+        if len(self.indicator_history[symbol]) > 100:
+            self.indicator_history[symbol] = self.indicator_history[symbol][-100:]
+
+        self._save_indicator_history()
+        return indicator
+
+    def update_with_tick(
+            self,
+            symbol: str,
+            ltp: float,
+            timestamp: datetime
+    ) -> Optional[ADXIndicators]:
+        """
+        Aggregate a single LTP tick into a time-based OHLC candle and recompute
+        indicators on the resulting candle series.
+
+        Incoming quotes only carry the day's static high/low, which makes
+        directional movement (and therefore +DI/-DI/ADX) always zero. Building
+        candles from the moving LTP gives the DI/ADX calculation real bar-to-bar
+        range to work with.
+
+        Args:
+            symbol: Symbol identifier
+            ltp: Last traded price for this tick
+            timestamp: Tick timestamp
+
+        Returns:
+            ADXIndicators object or None if insufficient data
+        """
+        interval = max(int(self.config.candle_interval_seconds), 1)
+
+        # Floor the timestamp to the start of its candle bucket.
+        epoch = int(timestamp.timestamp())
+        bucket = datetime.fromtimestamp(epoch - (epoch % interval))
+
+        if symbol not in self.price_history:
+            self.price_history[symbol] = pd.DataFrame(
+                columns=['timestamp', 'high', 'low', 'close']
+            )
+
+        df = self.price_history[symbol]
+        current_bucket = self._current_candle_bucket.get(symbol)
+
+        if current_bucket is None or bucket > current_bucket or df.empty:
+            # Start a new candle (open=high=low=close=ltp).
+            new_row = pd.DataFrame([{
+                'timestamp': bucket,
+                'high': ltp,
+                'low': ltp,
+                'close': ltp
+            }])
+            self.price_history[symbol] = pd.concat([df, new_row], ignore_index=True)
+            self._current_candle_bucket[symbol] = bucket
+        else:
+            # Update the in-progress candle for the current bucket.
+            idx = df.index[-1]
+            df.at[idx, 'high'] = max(df.at[idx, 'high'], ltp)
+            df.at[idx, 'low'] = min(df.at[idx, 'low'], ltp)
+            df.at[idx, 'close'] = ltp
+
+        # Keep only necessary history (period * 3 for stable calculation).
+        max_rows = self.config.di_period * 3
+        if len(self.price_history[symbol]) > max_rows:
+            self.price_history[symbol] = self.price_history[symbol].iloc[-max_rows:]
+
+        # Need at least period + 1 candles for a stable calculation.
+        if len(self.price_history[symbol]) < self.config.di_period + 1:
+            logger.debug(
+                f"Insufficient candles for {symbol}: "
+                f"{len(self.price_history[symbol])} (need {self.config.di_period + 1})"
+            )
+            return None
+
+        return self._compute_and_store_indicators(symbol, timestamp)
+
+    def _compute_and_store_indicators(
+            self,
+            symbol: str,
+            timestamp: datetime
+    ) -> Optional[ADXIndicators]:
+        """Compute DI/ADX from the symbol's candle series and persist the latest value."""
+        df_with_indicators = self.calculate_di_indicators(
+            self.price_history[symbol],
+            self.config.di_period
+        )
+
+        latest = df_with_indicators.iloc[-1]
+
+        indicator = ADXIndicators(
+            symbol=symbol,
+            di_plus=float(latest['+DI']),
+            di_minus=float(latest['-DI']),
+            adx=float(latest['ADX']),
+            true_range=float(latest['TR']),
+            dm_plus=float(latest['DM+']),
+            dm_minus=float(latest['DM-']),
+            timestamp=timestamp,
+            period=self.config.di_period
+        )
+
+        if symbol not in self.indicator_history:
+            self.indicator_history[symbol] = []
+
+        self.indicator_history[symbol].append(indicator)
+
         if len(self.indicator_history[symbol]) > 100:
             self.indicator_history[symbol] = self.indicator_history[symbol][-100:]
 

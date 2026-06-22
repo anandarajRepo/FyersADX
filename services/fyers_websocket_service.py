@@ -306,9 +306,10 @@ class FyersWebSocketService:
             # Buffer quote for indicator calculation
             self.quote_buffer[symbol].append(quote)
 
-            # Calculate indicators if enough data
-            if len(self.quote_buffer[symbol]) >= self.strategy_config.di_period + 1:
-                self._calculate_and_update_indicators(symbol)
+            # Feed every tick into the candle aggregator. It builds OHLC candles
+            # over candle_interval_seconds and only returns indicators once enough
+            # candles exist, so there's no need to gate on raw tick count here.
+            self._calculate_and_update_indicators(symbol)
 
             # Notify quote callbacks
             for callback in self.quote_callbacks:
@@ -354,12 +355,13 @@ class FyersWebSocketService:
             if not latest_quote:
                 return
 
-            # Calculate indicators using analysis service
-            indicators = self.analysis_service.calculate_single_indicator(
+            # Aggregate the LTP tick into an OHLC candle and recompute indicators.
+            # The quote's high/low are the day's static range, so feeding them
+            # directly yields zero directional movement (+DI/-DI/ADX all 0). Using
+            # the moving LTP to build candles gives the calculation real range.
+            indicators = self.analysis_service.update_with_tick(
                 symbol=symbol,
-                high=latest_quote.high,
-                low=latest_quote.low,
-                close=latest_quote.ltp,
+                ltp=latest_quote.ltp,
                 timestamp=latest_quote.timestamp
             )
 
