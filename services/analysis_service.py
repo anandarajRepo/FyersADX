@@ -719,6 +719,31 @@ class ADXTechnicalAnalysisService:
         display_cols = base_cols + ['+DI', '-DI', 'ADX', 'signal']
         return enriched[[c for c in display_cols if c in enriched.columns]].copy()
 
+    def build_full_dataframe(self) -> 'pd.DataFrame':
+        """Return one concatenated dataframe of every symbol's full price history
+        enriched with ADX/DI values and crossover signals.
+
+        Each symbol's frame is augmented via `_build_display_df` (timestamp, OHLC,
+        +DI, -DI, ADX and a 'signal' crossover column) and prefixed with a 'symbol'
+        column so all symbols can be inspected/exported together. Returns an empty
+        DataFrame when no price history is available yet.
+        """
+        frames: List['pd.DataFrame'] = []
+        for symbol, df in dict(self.price_history).items():
+            if df is None or df.empty:
+                continue
+            display_df = self._build_display_df(df)
+            if display_df.empty:
+                continue
+            display_df = display_df.copy()
+            display_df.insert(0, 'symbol', symbol)
+            frames.append(display_df)
+
+        if not frames:
+            return pd.DataFrame()
+
+        return pd.concat(frames, ignore_index=True)
+
     def log_dataframe_snapshot(self) -> None:
         """Log the latest computed ADX/DI values for all symbols with available price history."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

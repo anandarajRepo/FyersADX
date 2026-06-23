@@ -8,6 +8,7 @@ position management, and the critical 3:20 PM square-off logic.
 import json
 import logging
 import asyncio
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -961,8 +962,46 @@ class ADXStrategy:
             log_summary(date_str)
             # Rich version goes to the console
             print_summary(date_str, console=Console())
+            # Append the full ADX/DI + signal dataframe for all symbols
+            self._print_full_dataframe(date_str)
         except Exception as e:
             logger.error(f"Failed to generate end-of-day paper summary: {e}")
+
+    def _print_full_dataframe(self, date_str: str) -> None:
+        """Concatenate and emit the entire price-history dataframe (all symbols)
+        with ADX/DI values and crossover signals, alongside the trade summary.
+
+        The combined frame is printed to the console, written to the log file and
+        persisted to ``logs/adx_signals_<date>.csv`` for later inspection.
+        """
+        try:
+            full_df = self.analysis_service.build_full_dataframe()
+        except Exception as e:
+            logger.error(f"Failed to build full ADX/signal dataframe: {e}")
+            return
+
+        if full_df.empty:
+            logger.info("No ADX/signal dataframe available to append to summary.")
+            return
+
+        # Persist to CSV for downstream analysis.
+        try:
+            os.makedirs("logs", exist_ok=True)
+            csv_path = f"logs/adx_signals_{date_str}.csv"
+            full_df.to_csv(csv_path, index=False)
+            logger.info(f"Saved full ADX/signal dataframe to {csv_path}")
+        except Exception as e:
+            logger.warning(f"Failed to save ADX/signal dataframe CSV: {e}")
+
+        # Emit to log file (plain text) and console.
+        logger.info(
+            f"===== Full ADX/DI + Signal DataFrame ({len(full_df)} rows) =====\n"
+            f"{full_df.to_string(index=False)}"
+        )
+        try:
+            Console().print(full_df.to_string(index=False))
+        except Exception:
+            pass
 
     def stop_strategy(self) -> None:
         """Stop the strategy gracefully."""
