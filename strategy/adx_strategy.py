@@ -267,6 +267,10 @@ class ADXStrategy:
             self.is_running = False
             logger.info("Strategy cycle stopped")
 
+            # End-of-day paper trading summary (after market hours / on stop)
+            if not self.live_trading:
+                self._print_end_of_day_summary()
+
     def _setup_data_callbacks(self) -> None:
         """Setup callbacks for real-time data updates."""
         if not self.data_service:
@@ -940,6 +944,25 @@ class ADXStrategy:
                 'quantity': pos.quantity
             } for symbol, pos in self.positions.items()}
         }
+
+    def _print_end_of_day_summary(self) -> None:
+        """
+        Print and log the end-of-day paper-trading summary.
+
+        Reads today's paper-trade log (the on-disk source of truth) so the
+        same summary is available both here and via `python main.py summary`.
+        """
+        try:
+            from services.paper_trade_summary import print_summary, log_summary
+            from rich.console import Console
+
+            date_str = datetime.now().strftime("%Y%m%d")
+            # Plain-text version goes to the log file (cron-friendly)
+            log_summary(date_str)
+            # Rich version goes to the console
+            print_summary(date_str, console=Console())
+        except Exception as e:
+            logger.error(f"Failed to generate end-of-day paper summary: {e}")
 
     def stop_strategy(self) -> None:
         """Stop the strategy gracefully."""

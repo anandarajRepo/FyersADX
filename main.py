@@ -871,6 +871,30 @@ def performance(export):
 
 
 @cli.command()
+@click.option('--date', '-d', 'date_str',
+              help='Date to summarize in YYYYMMDD format (default: today)')
+def summary(date_str):
+    """
+    Show the end-of-day paper trading summary.
+
+    Lists every trade for the day with entry/exit, exit reason and P&L,
+    plus aggregate statistics (win rate, net P&L, profit factor). Intended
+    to be run after market hours.
+
+    Examples:
+        python main.py summary
+        python main.py summary --date 20260623
+    """
+    from services.paper_trade_summary import print_summary
+
+    if date_str:
+        # Accept both YYYYMMDD and YYYY-MM-DD for convenience
+        date_str = date_str.replace('-', '')
+
+    print_summary(date_str, console=console)
+
+
+@cli.command()
 def status():
     """
     Show current strategy status (positions, P&L, etc).
