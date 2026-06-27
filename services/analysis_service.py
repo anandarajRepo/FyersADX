@@ -761,14 +761,15 @@ class ADXTechnicalAnalysisService:
 
             try:
                 df_calc = self.calculate_di_indicators(df, self.config.di_period)
-                latest = df_calc.iloc[-1]
-                logger.info(
-                    f"[{symbol}] rows={len(df)} | "
-                    f"+DI={latest['+DI']:.4f} | -DI={latest['-DI']:.4f} | "
-                    f"ADX={latest['ADX']:.4f} | TR={latest['TR']:.4f} | "
-                    f"DM+={latest['DM+']:.4f} | DM-={latest['DM-']:.4f} | "
-                    f"last_close={latest['close']:.4f}"
-                )
+                with pd.option_context(
+                    "display.max_rows", None,
+                    "display.max_columns", None,
+                    "display.width", None,
+                    "display.float_format", lambda v: f"{v:.4f}",
+                ):
+                    logger.info(
+                        f"[{symbol}] rows={len(df_calc)}\n{df_calc.to_string()}"
+                    )
             except Exception as e:
                 logger.error(f"[{symbol}] Snapshot calculation error: {e}")
 
