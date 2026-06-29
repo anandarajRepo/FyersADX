@@ -679,7 +679,9 @@ class ADXTechnicalAnalysisService:
             self._last_printed_ts[f"{sym}__stale_warned"] = False
 
             display_df = self._build_display_df(df)
-            logger.info(
+            # Logged at DEBUG so the full dataframe is not dumped on every tick/scan
+            # at the default INFO level. Set LOG_LEVEL=DEBUG to inspect it.
+            logger.debug(
                 f"[{sym}] last {min(n, len(display_df))} rows:\n"
                 f"{display_df.tail(n).to_string()}"
             )
