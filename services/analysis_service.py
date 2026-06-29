@@ -61,7 +61,9 @@ class ADXTechnicalAnalysisService:
             period: Period for DI calculation (default 14)
 
         Returns:
-            DataFrame with additional columns: +DI, -DI, ADX, TR, DM+, DM-
+            DataFrame with additional columns: +DI, -DI, ADX, TR, DM+, DM-,
+            and a 'signal' crossover column (LONG when +DI crosses above -DI,
+            SHORT when -DI crosses above +DI).
         """
         df = df.copy()
 
@@ -118,6 +120,16 @@ class ADXTechnicalAnalysisService:
         df['+DI'].fillna(0, inplace=True)
         df['-DI'].fillna(0, inplace=True)
         df['ADX'].fillna(0, inplace=True)
+
+        # Derive a crossover signal column by comparing each row to the previous:
+        # LONG when +DI crosses above -DI, SHORT when -DI crosses above +DI.
+        prev_plus = df['+DI'].shift(1)
+        prev_minus = df['-DI'].shift(1)
+        long_cross = (prev_plus <= prev_minus) & (df['+DI'] > df['-DI'])
+        short_cross = (prev_minus <= prev_plus) & (df['-DI'] > df['+DI'])
+        df['signal'] = ''
+        df.loc[long_cross, 'signal'] = 'LONG'
+        df.loc[short_cross, 'signal'] = 'SHORT'
 
         logger.debug(f"Calculated DI indicators for {len(df)} data points")
 
@@ -708,16 +720,7 @@ class ADXTechnicalAnalysisService:
             if col in enriched.columns:
                 enriched[col] = enriched[col].round(2)
 
-        # Derive a crossover signal column by comparing each row to the previous.
-        prev_plus = enriched['+DI'].shift(1)
-        prev_minus = enriched['-DI'].shift(1)
-        long_cross = (prev_plus <= prev_minus) & (enriched['+DI'] > enriched['-DI'])
-        short_cross = (prev_minus <= prev_plus) & (enriched['-DI'] > enriched['+DI'])
-
-        enriched['signal'] = ''
-        enriched.loc[long_cross, 'signal'] = 'LONG'
-        enriched.loc[short_cross, 'signal'] = 'SHORT'
-
+        # The 'signal' crossover column is computed by calculate_di_indicators.
         display_cols = base_cols + ['+DI', '-DI', 'ADX', 'signal']
         return enriched[[c for c in display_cols if c in enriched.columns]].copy()
 
