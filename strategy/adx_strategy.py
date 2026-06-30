@@ -366,7 +366,7 @@ class ADXStrategy:
             ADXSignal or None if validation fails
         """
         # Get current quote (placeholder - integrate with your data service)
-        live_quote = self._get_live_quote(symbol)
+        live_quote = await self._get_live_quote(symbol)
         if not live_quote:
             return None
 
