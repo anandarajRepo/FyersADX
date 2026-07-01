@@ -673,7 +673,7 @@ class ADXStrategy:
         for symbol, position in self.positions.items():
             try:
                 # Update position with current price
-                live_quote = self._get_live_quote(symbol)
+                live_quote = await self._get_live_quote(symbol)
                 if not live_quote:
                     continue
 
