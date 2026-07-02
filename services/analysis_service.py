@@ -773,7 +773,7 @@ class ADXTechnicalAnalysisService:
                     "display.float_format", lambda v: f"{v:.4f}",
                 ):
                     logger.info(
-                        f"[{symbol}] rows={len(df_calc)}\n{df_calc.to_string()}"
+                        f"[{symbol}] rows={len(df_calc)}\n{df_calc.to_string(max_rows=None)}"
                     )
             except Exception as e:
                 logger.error(f"[{symbol}] Snapshot calculation error: {e}")
